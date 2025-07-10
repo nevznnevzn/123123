@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # PostgreSQL база данных
+  postgres:
+    image: postgres:15-alpine
+    container_name: solarbalance_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: solarbalance
+      POSTGRES_USER: solarbalance_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secure_password_123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U solarbalance_user -d solarbalance"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis для кэширования (опционально)
+  redis:
+    image: redis:7-alpine
+    container_name: solarbalance_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+
+  # Telegram бот
+  bot:
+    build: .
+    container_name: solarbalance_bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Telegram
+      BOT_TOKEN: ${BOT_TOKEN}
+      
+      # База данных
+      DATABASE_URL: postgresql+asyncpg://solarbalance_user:${DB_PASSWORD:-secure_password_123}@postgres:5432/solarbalance
+      
+      # Внешние API
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      
+      # Админы
+      ADMIN_IDS: ${ADMIN_IDS:-123456789}
+      
+      # Режим (production/development)
+      ENVIRONMENT: production
+      
+    volumes:
+      - ./logs:/app/logs
+      - ./assets:/app/assets
+      - ./de421.bsp:/app/de421.bsp
+    
+    # Мониторинг здоровья
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Nginx (опционально, для webhook режима)
+  nginx:
+    image: nginx:alpine
+    container_name: solarbalance_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - bot
+    profiles:
+      - webhook
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: solarbalance_network 
