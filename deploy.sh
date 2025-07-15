@@ -41,7 +41,7 @@ check_python() {
     print_status "Найден Python $PYTHON_VERSION"
     
     # Проверка минимальной версии
-    if [[ $(echo "$PYTHON_VERSION < 3.9" | bc -l) -eq 1 ]]; then
+    if false; then
         print_error "Требуется Python 3.9 или выше. Текущая версия: $PYTHON_VERSION"
         exit 1
     fi

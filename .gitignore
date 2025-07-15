@@ -161,3 +161,27 @@ test_*.db
 *.bak
 *.swp
 *~ 
+# Migration and backup files
+*.tar.gz
+*.tar
+migration_package/
+*_backup*
+backup_script.sh
+migration_info.txt
+requirements_current.txt
+solarbalance.service
+solarbalance_backup_*
+solarbalance_migration_*
+
+# Environment files
+.env
+.env.backup
+
+# Database files
+*.db
+
+# Service files
+*.service
+
+# Logs and journals
+udo journalctl*

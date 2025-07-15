@@ -194,7 +194,7 @@ async def main():
 
         # --- Настройка команд ---
         try:
-            await set_bot_commands(bot_instance, admin_ids=Config.ADMIN_IDS)
+            await set_bot_commands(bot_instance)
             logger.info("✅ Команды бота установлены")
         except Exception as e:
             logger.error(f"❌ Ошибка установки команд: {e}")
