@@ -185,3 +185,5 @@ solarbalance_migration_*
 
 # Logs and journals
 udo journalctl*
+fix_server_config_local.sh
+main.py.backup
