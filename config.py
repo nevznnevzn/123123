@@ -1,168 +1,167 @@
 import os
-from dataclasses import dataclass
-from enum import Enum
-from typing import List
+from typing import Optional
 
 from dotenv import load_dotenv
 
-# Загружаем переменные окружения из .env файла
 load_dotenv()
 
 
 class Config:
-    """Класс для хранения конфигурации бота"""
+    """Конфигурация приложения"""
 
-    # Основные настройки бота
-    TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
-    BOT_TOKEN = TOKEN  # Алиас для совместимости
+    # === TELEGRAM ===
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN не найден в переменных окружения")
     
-    # Проверка обязательных переменных
-    if not TOKEN:
-        raise ValueError("BOT_TOKEN не найден в переменных окружения!")
-    
-    # Администраторы
+    # === ADMIN ===
     ADMIN_IDS_STR = os.getenv("ADMIN_IDS", "")
-    try:
-        ADMIN_IDS = [int(admin_id.strip()) for admin_id in ADMIN_IDS_STR.split(",") if admin_id.strip()]
-    except (ValueError, TypeError):
-        ADMIN_IDS = []
-    
-    # Если администраторы не указаны, используем хардкод (для совместимости)
-    if not ADMIN_IDS:
-        ADMIN_IDS = [955128174]  # Ваш ID
+    ADMIN_IDS = []
+    if ADMIN_IDS_STR:
+        try:
+            ADMIN_IDS = [int(admin_id.strip()) for admin_id in ADMIN_IDS_STR.split(",") if admin_id.strip()]
+        except ValueError:
+            print("⚠️ Ошибка парсинга ADMIN_IDS, используем пустой список")
+            ADMIN_IDS = []
 
-    # AI Service
-    AI_API = os.getenv("AI_API") or os.getenv("BOTHUB_API_KEY")
-    YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
-    BOTHUB_API_KEY = AI_API  # Алиас для Bothub
-
-    # База данных
-    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///astro_bot.db")
-    
-    # Режим работы
-    ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
-    DEBUG = ENVIRONMENT == "development"
-    
-    # Логирование
-    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-    
-    # Webhook настройки (для продакшена)
-    WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")
-    WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "8080"))
-    WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
-    WEBHOOK_URL = f"https://{WEBHOOK_HOST}{WEBHOOK_PATH}" if WEBHOOK_HOST else None
-    
-    # Безопасность
-    SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-me")
-    
-    # Redis (для кэширования)
-    REDIS_URL = os.getenv("REDIS_URL")
-    
-    # Форматы дат
-    DATE_FORMAT = "%d.%m.%Y"
-    DATETIME_FORMAT = "%d.%m.%Y %H:%M"
-
-    # Форматы дат для парсинга
-    DATE_TIME_FORMATS = [
-        "%d.%m.%Y %H:%M",
-        "%d/%m/%Y %H:%M",
-        "%d-%m-%Y %H:%M",
-        "%Y-%m-%d %H:%M",
-    ]
-
-    DATE_ONLY_FORMATS = [
-        "%d.%m.%Y",
-        "%d/%m/%Y",
-        "%d-%m-%Y",
-        "%Y-%m-%d",
-    ]
-
-    # Знаки зодиака
-    ZODIAC_SIGNS = [
-        "Овен",
-        "Телец",
-        "Близнецы",
-        "Рак",
-        "Лев",
-        "Дева",
-        "Весы",
-        "Скорпион",
-        "Стрелец",
-        "Козерог",
-        "Водолей",
-        "Рыбы",
-    ]
-
-    # AI сервис настройки
+    # === AI ===
+    AI_API = os.getenv("AI_API")
     AI_REQUEST_TIMEOUT = int(os.getenv("AI_REQUEST_TIMEOUT", "30"))
-    AI_MAX_RETRIES = int(os.getenv("AI_MAX_RETRIES", "2"))
-    AI_ENABLED = os.getenv("AI_ENABLED", "true").lower() in ("true", "1", "yes", "on")
+    AI_MAX_RETRIES = int(os.getenv("AI_MAX_RETRIES", "3"))
+
+    # === DATABASE ===
+    # Поддержка как SQLite для разработки, так и PostgreSQL для продакшена
+    DATABASE_URL = os.getenv("DATABASE_URL")
     
-    # Лимиты производительности
-    MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "10"))
-    REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "30"))
+    # Если DATABASE_URL не указан, используем SQLite для разработки
+    if not DATABASE_URL:
+        DATABASE_URL = "sqlite+aiosqlite:///solarbalance.db"
+        print("⚠️ DATABASE_URL не указан, используется SQLite для разработки")
     
-    # Настройки подписки
-    SUBSCRIPTION_PRICES = {
-        "monthly": {
-            "price": int(os.getenv("MONTHLY_PRICE", "499")),
-            "currency": os.getenv("CURRENCY", "RUB"),
-            "duration_days": 30,
-        }
+    # Определяем тип БД по URL
+    IS_POSTGRESQL = DATABASE_URL.startswith(("postgresql://", "postgres://"))
+    IS_SQLITE = DATABASE_URL.startswith("sqlite")
+    
+    if IS_POSTGRESQL:
+        print("✅ Используется PostgreSQL")
+    elif IS_SQLITE:
+        print("✅ Используется SQLite (разработка)")
+    else:
+        print("⚠️ Неизвестный тип БД, проверьте DATABASE_URL")
+
+    # === SWISS EPHEMERIS ===
+    EPHEMERIS_PATH = os.getenv("EPHEMERIS_PATH", ".")
+
+    # === ZODIAC SIGNS ===
+    ZODIAC_SIGNS = [
+        "Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева",
+        "Весы", "Скорпион", "Стрелец", "Козерог", "Водолей", "Рыбы"
+    ]
+
+    # === SUBSCRIPTION LIMITS ===
+    FREE_USER_LIMITS = {
+        "natal_charts": 3,
+        "questions_per_day": 5,
+        "planets": ["Солнце", "Луна", "Асцендент"]
     }
-    
+
+    PREMIUM_USER_LIMITS = {
+        "natal_charts": -1,  # Безлимитно
+        "questions_per_day": -1,  # Безлимитно
+        "planets": [
+            "Солнце", "Луна", "Асцендент", "Меркурий", "Венера", "Марс",
+            "Юпитер", "Сатурн", "Уран", "Нептун", "Плутон"
+        ]
+    }
+
+    # === ANTI-SPAM ===
+    ANTI_SPAM_CONFIG = {
+        "questions_per_day": 5,
+        "premium_questions_per_day": 50,
+        "reset_hour": 0,  # Час сброса лимитов (UTC)
+    }
+
+    # === LOGGING ===
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+    # === ENVIRONMENT ===
+    ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+    IS_PRODUCTION = ENVIRONMENT.lower() == "production"
+    IS_DEVELOPMENT = ENVIRONMENT.lower() == "development"
+
+    # === PERFORMANCE ===
+    # Настройки для PostgreSQL
+    POSTGRESQL_CONFIG = {
+        "pool_size": int(os.getenv("POSTGRESQL_POOL_SIZE", "20")),
+        "max_overflow": int(os.getenv("POSTGRESQL_MAX_OVERFLOW", "30")),
+        "pool_pre_ping": True,
+        "pool_recycle": int(os.getenv("POSTGRESQL_POOL_RECYCLE", "3600")),
+        "echo": os.getenv("POSTGRESQL_ECHO", "false").lower() == "true",
+    }
+
+    # Настройки для SQLite
+    SQLITE_CONFIG = {
+        "pool_pre_ping": True,
+        "pool_recycle": 3600,
+        "echo": False,
+    }
+
     @classmethod
-    def get_database_url(cls) -> str:
-        """Получить URL базы данных с проверкой"""
-        db_url = cls.DATABASE_URL
-        
-        # Для продакшена рекомендуется PostgreSQL
-        if cls.ENVIRONMENT == "production" and db_url.startswith("sqlite"):
-            print("⚠️  ПРЕДУПРЕЖДЕНИЕ: Используется SQLite в продакшене. Рекомендуется PostgreSQL.")
-        
-        return db_url
+    def get_database_config(cls) -> dict:
+        """Получить конфигурацию БД в зависимости от типа"""
+        if cls.IS_POSTGRESQL:
+            return cls.POSTGRESQL_CONFIG
+        else:
+            return cls.SQLITE_CONFIG
     
     @classmethod
     def is_production(cls) -> bool:
-        """Проверить, запущен ли бот в продакшене"""
-        return cls.ENVIRONMENT == "production"
-    
+        """Проверить, является ли окружение продакшеном"""
+        return cls.IS_PRODUCTION
+
     @classmethod
-    def get_log_config(cls) -> dict:
-        """Получить конфигурацию логирования"""
-        return {
-            "level": cls.LOG_LEVEL,
-            "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            "handlers": [
-                {
-                    "class": "logging.StreamHandler",
-                    "level": cls.LOG_LEVEL,
-                },
-                {
-                    "class": "logging.FileHandler",
-                    "filename": "logs/bot.log",
-                    "level": cls.LOG_LEVEL,
-                    "encoding": "utf-8",
-                },
-            ] if cls.is_production() else [
-                {
-                    "class": "logging.StreamHandler",
-                    "level": cls.LOG_LEVEL,
-                }
-            ]
-        }
+    def validate_config(cls) -> bool:
+        """Проверка корректности конфигурации"""
+        errors = []
+        
+        if not cls.BOT_TOKEN:
+            errors.append("BOT_TOKEN не указан")
+        
+        if not cls.DATABASE_URL:
+            errors.append("DATABASE_URL не указан")
+        
+        if cls.IS_POSTGRESQL and not cls.AI_API:
+            errors.append("AI_API обязателен для продакшена")
+        
+        if errors:
+            print("❌ Ошибки конфигурации:")
+            for error in errors:
+                print(f"  - {error}")
+            return False
+        
+        return True
+
+    @classmethod
+    def print_config_summary(cls):
+        """Вывести краткую сводку конфигурации"""
+        print("\n📋 СВОДКА КОНФИГУРАЦИИ:")
+        print("=" * 40)
+        print(f"🌍 Окружение: {cls.ENVIRONMENT}")
+        print(f"🤖 AI API: {'✅ Настроен' if cls.AI_API else '❌ Не настроен'}")
+        print(f"🗄️ База данных: {'PostgreSQL' if cls.IS_POSTGRESQL else 'SQLite'}")
+        print(f"🔧 Режим: {'Продакшен' if cls.IS_PRODUCTION else 'Разработка'}")
+        
+        if cls.IS_POSTGRESQL:
+            print(f"📊 Пул соединений: {cls.POSTGRESQL_CONFIG['pool_size']}")
+            print(f"🔄 Макс. переполнение: {cls.POSTGRESQL_CONFIG['max_overflow']}")
+        
+        print("=" * 40)
 
 
-class Planets(Enum):
-    """Планеты для расчетов"""
+# Валидация конфигурации при импорте
+if not Config.validate_config():
+    raise RuntimeError("Некорректная конфигурация")
 
-    SUN = (0, "Солнце")
-    MOON = (1, "Луна")
-    MERCURY = (2, "Меркурий")
-    VENUS = (3, "Венера")
-    MARS = (4, "Марс")
-    JUPITER = (5, "Юпитер")
-    SATURN = (6, "Сатурн")
-    URANUS = (7, "Уран")
-    NEPTUNE = (8, "Нептун")
-    PLUTO = (9, "Плутон")
+# Вывод сводки конфигурации
+Config.print_config_summary()

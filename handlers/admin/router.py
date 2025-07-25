@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import platform
 import sys
 from datetime import datetime, timedelta
@@ -9,13 +10,19 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from database import DatabaseManager
+from database_async import async_db_manager
 
 from . import keyboards
 from .states import AdminStates
 
+logger = logging.getLogger(__name__)
 
-def create_admin_router() -> Router:
+
+def create_admin_router(db_manager=None) -> Router:
     """Создает и настраивает роутер для админ-панели."""
+    from database_async import async_db_manager
+    if db_manager is None:
+        db_manager = async_db_manager
     router = Router()
 
     @router.message(Command("admin"))
@@ -58,7 +65,7 @@ def create_admin_router() -> Router:
 
     @router.message(AdminStates.user_search)
     async def admin_search_user(
-        message: Message, state: FSMContext, db_manager: DatabaseManager
+        message: Message, state: FSMContext
     ):
         """Поиск пользователя по ID."""
         if not message.text.isdigit():
@@ -66,7 +73,7 @@ def create_admin_router() -> Router:
             return
 
         user_id = int(message.text)
-        user = db_manager.get_user_profile(user_id)
+        user = await async_db_manager.get_user_profile(user_id)
 
         if user:
             sub = user.subscription
@@ -118,16 +125,9 @@ def create_admin_router() -> Router:
         callback: CallbackQuery,
         page: int,
         list_type: str,
-        db_manager: DatabaseManager = None,
     ):
         """Показать список пользователей с пагинацией."""
-        if not db_manager:
-            # Получаем db_manager из middleware или создаем новый
-            from database import db_manager as default_db_manager
-
-            db_manager = default_db_manager
-
-        users, total_pages = db_manager.get_users_paginated(page, 10, list_type)
+        users, total_pages = await async_db_manager.get_users_paginated(page, 10, list_type)
 
         if not users:
             await callback.message.edit_text(
@@ -182,7 +182,7 @@ def create_admin_router() -> Router:
 
     @router.message(AdminStates.premium_user_search)
     async def admin_grant_premium_user_found(
-        message: Message, state: FSMContext, db_manager: DatabaseManager
+        message: Message, state: FSMContext
     ):
         """Пользователь найден, выбор срока Premium."""
         if not message.text.isdigit():
@@ -190,7 +190,7 @@ def create_admin_router() -> Router:
             return
 
         user_id = int(message.text)
-        user = db_manager.get_user_profile(user_id)
+        user = await async_db_manager.get_user_profile(user_id)
 
         if user:
             await state.update_data(target_user_id=user_id)
@@ -205,7 +205,7 @@ def create_admin_router() -> Router:
 
     @router.callback_query(F.data.startswith("premium_"))
     async def admin_premium_duration_selected(
-        callback: CallbackQuery, db_manager: DatabaseManager
+        callback: CallbackQuery
     ):
         """Выдача Premium на выбранный срок."""
         parts = callback.data.split("_")
@@ -216,10 +216,10 @@ def create_admin_router() -> Router:
         days = days_map.get(duration)
 
         if days is None:  # Бессрочная подписка
-            db_manager.create_premium_subscription(user_id, duration_days=99999)
+            await async_db_manager.create_premium_subscription(user_id, duration_days=99999)
             duration_text = "бессрочно"
         else:
-            db_manager.create_premium_subscription(user_id, duration_days=days)
+            await async_db_manager.create_premium_subscription(user_id, duration_days=days)
             duration_text = f"{days} дней"
 
         await callback.answer(f"✅ Premium выдан на {duration_text}!", show_alert=True)
@@ -240,7 +240,7 @@ def create_admin_router() -> Router:
 
     @router.message(AdminStates.revoke_user_search)
     async def admin_revoke_premium_execute(
-        message: Message, state: FSMContext, db_manager: DatabaseManager
+        message: Message, state: FSMContext
     ):
         """Отзыв Premium подписки."""
         if not message.text.isdigit():
@@ -248,7 +248,7 @@ def create_admin_router() -> Router:
             return
 
         user_id = int(message.text)
-        success = db_manager.cancel_subscription(user_id)
+        success = await async_db_manager.revoke_premium_subscription(user_id)
 
         if success:
             await message.answer("✅ Premium подписка отозвана.")
@@ -261,17 +261,18 @@ def create_admin_router() -> Router:
 
     @router.callback_query(F.data == "admin_sub_stats")
     async def admin_subscription_stats(
-        callback: CallbackQuery, db_manager: DatabaseManager
+        callback: CallbackQuery
     ):
         """Статистика подписок."""
-        stats = db_manager.get_detailed_statistics()
+        stats = await async_db_manager.get_detailed_statistics()
 
         text = (
-            f"📊 **Статистика подписок**\n\n"
-            f"💎 **Активных Premium:** {stats['subscriptions']['active_premium']}\n"
-            f"❌ **Истекших Premium:** {stats['subscriptions']['expired_premium']}\n"
-            f"📈 **Конверсия:** {stats['subscriptions']['conversion_rate']}%\n\n"
-            f"👥 **Всего пользователей:** {stats['users']['total']}"
+            f"�� **Статистика подписок**\n\n"
+            f"💎 **Активных Premium:** {stats['active_premium']}\n"
+            f"👥 **Всего пользователей:** {stats['total_users']}\n"
+            f"📊 **Завершенных профилей:** {stats['complete_profiles']}\n"
+            f"📈 **Всего карт:** {stats['total_charts']}\n"
+            f"🔮 **Всего прогнозов:** {stats['total_predictions']}"
         )
 
         await callback.message.edit_text(
@@ -290,7 +291,7 @@ def create_admin_router() -> Router:
 
     @router.callback_query(F.data.startswith("bulk_"))
     async def admin_bulk_premium_actions(
-        callback: CallbackQuery, db_manager: DatabaseManager
+        callback: CallbackQuery
     ):
         """Массовые действия с Premium."""
         action = callback.data.split("_", 1)[1]
@@ -298,10 +299,10 @@ def create_admin_router() -> Router:
         if action == "premium_30_active":
             # 30 дней всем активным пользователям последние 7 дней
             week_ago = datetime.utcnow() - timedelta(days=7)
-            users = db_manager.get_users_paginated(1, 1000, "active")[0]
+            users, _ = await async_db_manager.get_users_paginated(1, 1000, "active")
             count = 0
             for user in users:
-                db_manager.create_premium_subscription(
+                await async_db_manager.create_premium_subscription(
                     user.telegram_id, duration_days=30
                 )
                 count += 1
@@ -315,11 +316,11 @@ def create_admin_router() -> Router:
             today_start = datetime.utcnow().replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
-            users = db_manager.get_users_paginated(1, 1000, "all")[0]
+            users, _ = await async_db_manager.get_users_paginated(1, 1000, "all")
             count = 0
             for user in users:
                 if user.created_at >= today_start:
-                    db_manager.create_premium_subscription(
+                    await async_db_manager.create_premium_subscription(
                         user.telegram_id, duration_days=7
                     )
                     count += 1
@@ -330,8 +331,8 @@ def create_admin_router() -> Router:
 
         elif action == "extend_expiring":
             # Продлить истекающие подписки
-            users = db_manager.get_expiring_subscriptions(7)
-            count = db_manager.bulk_extend_premium([u.telegram_id for u in users], 30)
+            users = await async_db_manager.get_expiring_subscriptions(7)
+            count = await async_db_manager.bulk_extend_premium([u.telegram_id for u in users], 30)
 
             await callback.answer(f"✅ Продлено {count} подписок!", show_alert=True)
 
@@ -342,10 +343,10 @@ def create_admin_router() -> Router:
 
     @router.callback_query(F.data == "admin_cleanup_expired")
     async def admin_cleanup_expired(
-        callback: CallbackQuery, db_manager: DatabaseManager
+        callback: CallbackQuery
     ):
         """Очистка истекших подписок."""
-        count = db_manager.check_and_expire_subscriptions()
+        count = await async_db_manager.check_and_expire_subscriptions()
         await callback.answer(
             f"✅ Обновлено {count} истекших подписок!", show_alert=True
         )
@@ -367,30 +368,21 @@ def create_admin_router() -> Router:
 
     @router.callback_query(F.data == "admin_detailed_stats")
     async def admin_detailed_stats(
-        callback: CallbackQuery, db_manager: DatabaseManager
+        callback: CallbackQuery
     ):
         """Подробная статистика."""
-        stats = db_manager.get_detailed_statistics()
+        stats = await async_db_manager.get_detailed_statistics()
 
         text = (
             f"📈 **Подробная статистика**\n\n"
             f"👥 **Пользователи:**\n"
-            f"  • Всего: {stats['users']['total']}\n"
-            f"  • Сегодня: +{stats['users']['today']}\n"
-            f"  • Вчера: +{stats['users']['yesterday']}\n"
-            f"  • За неделю: +{stats['users']['week']}\n"
-            f"  • За месяц: +{stats['users']['month']}\n\n"
+            f"  • Всего: {stats['total_users']}\n"
+            f"  • Завершенных профилей: {stats['complete_profiles']}\n\n"
             f"💎 **Подписки:**\n"
-            f"  • Активных Premium: {stats['subscriptions']['active_premium']}\n"
-            f"  • Истекших: {stats['subscriptions']['expired_premium']}\n"
-            f"  • Конверсия: {stats['subscriptions']['conversion_rate']}%\n\n"
+            f"  • Активных Premium: {stats['active_premium']}\n\n"
             f"📊 **Контент:**\n"
-            f"  • Натальных карт: {stats['content']['total_charts']}\n"
-            f"  • Карт сегодня: +{stats['content']['charts_today']}\n"
-            f"  • Карт за неделю: +{stats['content']['charts_week']}\n"
-            f"  • Прогнозов: {stats['content']['total_predictions']}\n"
-            f"  • Прогнозов сегодня: +{stats['content']['predictions_today']}\n"
-            f"  • Прогнозов за неделю: +{stats['content']['predictions_week']}"
+            f"  • Натальных карт: {stats['total_charts']}\n"
+            f"  • Прогнозов: {stats['total_predictions']}"
         )
 
         await callback.message.edit_text(
@@ -417,10 +409,10 @@ def create_admin_router() -> Router:
     @router.callback_query(F.data == "admin_cleanup_db")
     async def admin_cleanup_db(callback: CallbackQuery, db_manager: DatabaseManager):
         """Очистка базы данных."""
-        result = db_manager.cleanup_database()
+        result = await async_db_manager.cleanup_database()
 
         text = (
-            f"🧹 **Очистка базы данных завершена**\n\n"
+            f"�� **Очистка базы данных завершена**\n\n"
             f"✅ Удалено устаревших прогнозов: {result['expired_predictions_removed']}\n"
             f"✅ Обновлено истекших подписок: {result['subscriptions_expired']}"
         )
@@ -434,15 +426,15 @@ def create_admin_router() -> Router:
 
     @router.callback_query(F.data.startswith("grant_premium_"))
     async def admin_grant_premium_legacy(
-        callback: CallbackQuery, db_manager: DatabaseManager
+        callback: CallbackQuery
     ):
         """Выдача Premium-статуса пользователю (legacy для совместимости)."""
         user_id = int(callback.data.split("_")[-1])
-        db_manager.create_premium_subscription(user_id, duration_days=30)
+        await async_db_manager.create_premium_subscription(user_id, duration_days=30)
 
         await callback.answer("✅ Premium-статус выдан на 30 дней!", show_alert=True)
 
-        user = db_manager.get_user_profile(user_id)
+        user = await async_db_manager.get_user_profile(user_id)
         sub = user.subscription
         sub_status = "Активна" if user.is_premium else "Отсутствует"
         if sub and sub.end_date:
@@ -463,15 +455,15 @@ def create_admin_router() -> Router:
 
     @router.callback_query(F.data.startswith("revoke_premium_"))
     async def admin_revoke_premium_legacy(
-        callback: CallbackQuery, db_manager: DatabaseManager
+        callback: CallbackQuery
     ):
         """Отзыв Premium-статуса у пользователя (legacy для совместимости)."""
         user_id = int(callback.data.split("_")[-1])
-        db_manager.cancel_subscription(user_id)
+        await async_db_manager.cancel_subscription(user_id)
 
         await callback.answer("❌ Premium-статус отозван.", show_alert=True)
 
-        user = db_manager.get_user_profile(user_id)
+        user = await async_db_manager.get_user_profile(user_id)
         sub = user.subscription
         sub_status = "Активна" if user.is_premium else "Отсутствует"
         if sub and sub.end_date:
@@ -492,11 +484,11 @@ def create_admin_router() -> Router:
 
     @router.callback_query(F.data.startswith("view_charts_"))
     async def admin_view_user_charts(
-        callback: CallbackQuery, db_manager: DatabaseManager
+        callback: CallbackQuery
     ):
         """Просмотр натальных карт пользователя."""
         user_id = int(callback.data.split("_")[-1])
-        charts = db_manager.get_user_charts(user_id)
+        charts = await async_db_manager.get_user_charts(user_id)
 
         if not charts:
             text = "📋 У пользователя нет натальных карт."
@@ -514,11 +506,11 @@ def create_admin_router() -> Router:
 
     @router.callback_query(F.data.startswith("view_activity_"))
     async def admin_view_user_activity(
-        callback: CallbackQuery, db_manager: DatabaseManager
+        callback: CallbackQuery
     ):
         """Просмотр активности пользователя."""
         user_id = int(callback.data.split("_")[-1])
-        activity = db_manager.get_user_activity(user_id)
+        activity = await async_db_manager.get_user_activity(user_id)
 
         if not activity:
             text = "❌ Данные об активности не найдены."
@@ -556,17 +548,17 @@ def create_admin_router() -> Router:
 
     @router.message(AdminStates.mailing_message_input)
     async def admin_mailing_get_message(
-        message: Message, state: FSMContext, db_manager: DatabaseManager
+        message: Message, state: FSMContext
     ):
         """Получение сообщения для рассылки и запрос подтверждения."""
         await state.update_data(message_to_send=message.model_dump())
 
-        total_users = db_manager.get_total_users_count()
+        total_users = await async_db_manager.get_total_users_count()
 
         await message.answer("📋 **Предпросмотр сообщения:**")
-        await message.copy_to(chat_id=message.chat.id)
         await message.answer(
-            f"📊 Получателей: {total_users} пользователей\n\n❓ Отправить рассылку?",
+            f"📝 **Текст:**\n{message.text}\n\n"
+            f"📊 **Будет отправлено:** {total_users} пользователям",
             reply_markup=keyboards.mailing_confirmation_keyboard(),
         )
 
@@ -575,24 +567,27 @@ def create_admin_router() -> Router:
         callback: CallbackQuery,
         state: FSMContext,
         bot: Bot,
-        db_manager: DatabaseManager,
     ):
-        """Подтверждение и запуск рассылки."""
+        """Подтверждение отправки рассылки."""
         data = await state.get_data()
         message_info = data.get("message_to_send")
 
-        await callback.message.edit_text("⏳ Рассылка началась...")
+        if not message_info:
+            await callback.answer("❌ Сообщение не найдено.", show_alert=True)
+            await state.clear()
+            return
 
+        # Запускаем отправку в фоне
         asyncio.create_task(
-            send_mailing_to_users(
-                bot=bot,
-                db_manager=db_manager,
-                message_info=message_info,
-                admin_id=callback.from_user.id,
-            )
+            send_mailing_to_users(bot, async_db_manager, message_info, callback.from_user.id)
+        )
+
+        await callback.answer("✅ Рассылка запущена!", show_alert=True)
+        await callback.message.edit_text(
+            "✅ **Рассылка запущена**\n\n📤 Сообщения отправляются в фоновом режиме.",
+            reply_markup=keyboards.back_to_main_admin_keyboard(),
         )
         await state.clear()
-        await callback.answer()
 
     @router.callback_query(
         F.data == "mailing_cancel", AdminStates.mailing_message_input
@@ -600,58 +595,125 @@ def create_admin_router() -> Router:
     async def admin_mailing_cancel(callback: CallbackQuery, state: FSMContext):
         """Отмена рассылки."""
         await state.clear()
+        await callback.answer("❌ Рассылка отменена.", show_alert=True)
         await callback.message.edit_text(
-            "❌ Рассылка отменена.",
+            "❌ **Рассылка отменена**",
             reply_markup=keyboards.back_to_main_admin_keyboard(),
         )
-        await callback.answer()
 
     async def send_mailing_to_users(
         bot: Bot, db_manager: DatabaseManager, message_info: dict, admin_id: int
     ):
         """Фоновая задача для отправки сообщений."""
-        users = db_manager.get_users_for_mailing()
+        logger.info(f"🚀 Начинаем рассылку. Админ ID: {admin_id}")
+        
+        users = await async_db_manager.get_users_for_mailing()
+        logger.info(f"📋 Получено {len(users)} пользователей для рассылки")
+        
         message = Message.model_validate(message_info)
+        logger.info(f"📝 Текст сообщения: {message.text[:50]}...")
 
         success_count = 0
-        fail_count = 0
+        error_count = 0
+        error_details = []
 
-        for user in users:
+        for i, user in enumerate(users, 1):
+            logger.info(f"📤 [{i}/{len(users)}] Отправляем сообщение пользователю {user.telegram_id} ({user.name})")
+            
             try:
-                await message.copy_to(chat_id=user.telegram_id)
+                # Безопасно получаем parse_mode, если его нет - используем None
+                parse_mode = getattr(message, 'parse_mode', None)
+                
+                await bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=message.text,
+                    parse_mode=parse_mode,
+                )
                 success_count += 1
-                await asyncio.sleep(0.1)
-            except Exception:
-                fail_count += 1
+                logger.info(f"✅ Сообщение успешно отправлено пользователю {user.telegram_id}")
+                await asyncio.sleep(0.05)  # Небольшая задержка между сообщениями
+            except Exception as e:
+                error_count += 1
+                error_msg = f"Ошибка отправки сообщения пользователю {user.telegram_id}: {e}"
+                logger.error(error_msg)
+                error_details.append(f"Пользователь {user.telegram_id}: {e}")
+                
+                # Логируем конкретные типы ошибок
+                if "Forbidden" in str(e):
+                    logger.warning(f"Пользователь {user.telegram_id} заблокировал бота")
+                elif "user not found" in str(e).lower():
+                    logger.warning(f"Пользователь {user.telegram_id} не найден")
+                elif "chat not found" in str(e).lower():
+                    logger.warning(f"Чат с пользователем {user.telegram_id} не найден")
 
-        report_text = (
-            f"✅ **Рассылка завершена!**\n\n"
-            f"👍 Доставлено: {success_count}\n"
-            f"👎 Не доставлено: {fail_count}"
-        )
-        await bot.send_message(admin_id, report_text)
+        logger.info(f"📊 Рассылка завершена. Успешно: {success_count}, Ошибок: {error_count}")
+        
+        # Отправляем отчет админу
+        try:
+            report_text = f"📊 **Рассылка завершена**\n\n"
+            report_text += f"✅ Успешно отправлено: {success_count}\n"
+            report_text += f"❌ Ошибок: {error_count}\n"
+            report_text += f"📤 Всего получателей: {len(users)}"
+            
+            if error_details:
+                report_text += f"\n\n🔍 **Детали ошибок:**\n"
+                for detail in error_details[:5]:  # Показываем первые 5 ошибок
+                    report_text += f"• {detail}\n"
+                if len(error_details) > 5:
+                    report_text += f"• ... и еще {len(error_details) - 5} ошибок"
+            
+            await bot.send_message(chat_id=admin_id, text=report_text)
+            logger.info(f"✅ Отчет отправлен админу {admin_id}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки отчета админу {admin_id}: {e}")
 
     # === БАЗОВАЯ СТАТИСТИКА ===
 
     @router.callback_query(F.data == "admin_stats")
-    async def admin_stats_show(callback: CallbackQuery, db_manager: DatabaseManager):
+    async def admin_stats_show(callback: CallbackQuery):
         """Отображение базовой статистики."""
-        stats = db_manager.get_app_statistics()
+        stats = await async_db_manager.get_app_statistics()
 
         stats_text = (
-            f"📊 **Базовая статистика**\n\n"
-            f"👥 **Пользователи:** {stats['total_users']}\n"
+            f"📊 **Статистика приложения**\n\n"
+            f"👥 **Пользователи:**\n"
+            f"  • Всего: {stats['total_users']}\n"
             f"  • Сегодня: +{stats['new_users_today']}\n"
-            f"  • За 7 дней: +{stats['new_users_7_days']}\n"
-            f"  • За 30 дней: +{stats['new_users_30_days']}\n\n"
-            f"💎 **Premium:** {stats['active_premium']}\n"
-            f"📋 **Натальных карт:** {stats['total_charts']}"
+            f"  • За неделю: +{stats['new_users_7_days']}\n"
+            f"  • За месяц: +{stats['new_users_30_days']}\n\n"
+            f"💎 **Premium:** {stats['active_premium']} активных\n"
+            f"📊 **Карты:** {stats['total_charts']} всего"
         )
+        await callback.message.edit_text(stats_text, reply_markup=keyboards.back_to_main_admin_keyboard())
+        await callback.answer()
 
+    @router.callback_query(F.data.startswith("send_message_"))
+    async def admin_send_message_start(callback: CallbackQuery, state: FSMContext):
+        """Начало отправки сообщения пользователю из админки."""
+        user_id = int(callback.data.split("_")[-1])
+        await state.update_data(target_user_id=user_id)
+        await state.set_state(AdminStates.send_message_input)
         await callback.message.edit_text(
-            stats_text, reply_markup=keyboards.back_to_main_admin_keyboard()
+            f"💬 Введите текст сообщения для пользователя <code>{user_id}</code>:",
+            reply_markup=keyboards.back_to_main_admin_keyboard(),
         )
         await callback.answer()
+
+    @router.message(AdminStates.send_message_input)
+    async def admin_send_message_finish(message: Message, state: FSMContext, bot: Bot):
+        """Получение текста сообщения и отправка пользователю."""
+        data = await state.get_data()
+        user_id = data.get("target_user_id")
+        if not user_id:
+            await message.answer("❌ Не удалось определить пользователя.")
+            await state.clear()
+            return
+        try:
+            await bot.send_message(chat_id=user_id, text=message.text)
+            await message.answer(f"✅ Сообщение отправлено пользователю <code>{user_id}</code>!", reply_markup=keyboards.back_to_main_admin_keyboard())
+        except Exception as e:
+            await message.answer(f"❌ Не удалось отправить сообщение: {e}", reply_markup=keyboards.back_to_main_admin_keyboard())
+        await state.clear()
 
     # === ОБРАБОТКА НЕИЗВЕСТНЫХ CALLBACK ===
 

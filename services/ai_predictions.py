@@ -51,13 +51,19 @@ class AIPredictionService:
 
         if OpenAI and Config.AI_API:
             try:
-                # Настройка клиента для работы с Bothub
                 self.client = OpenAI(
                     api_key=Config.AI_API,
                     base_url="https://bothub.chat/api/v2/openai/v1",
                 )
                 logger.info("✅ AI клиент успешно создан")
                 logger.info("✅ AI сервис прогнозов инициализирован")
+                # Логируем доступные модели
+                try:
+                    models = self.client.models.list()
+                    model_names = [m.id for m in models.data]
+                    logger.info(f"Доступные AI-модели: {model_names}")
+                except Exception as e:
+                    logger.warning(f"Не удалось получить список моделей: {e}")
             except Exception as e:
                 logger.error(f"❌ Ошибка инициализации AI сервиса: {e}")
                 self.client = None
@@ -161,7 +167,7 @@ class AIPredictionService:
         """Генерирует прогноз на основе натальной карты пользователя"""
         
         # Проверяем, включен ли AI в конфигурации
-        if not Config.AI_ENABLED:
+        if not Config.AI_API:
             logger.info("🔧 AI отключен в конфигурации, используем fallback")
             return self._generate_fallback_prediction(prediction_type, owner_name, "disabled")
         
@@ -418,10 +424,7 @@ class AIPredictionService:
                 logger.info(f"🤖 AI запрос попытка {attempt + 1}/{Config.AI_MAX_RETRIES}")
                 
                 # Выполняем запрос с таймаутом
-                response = await asyncio.wait_for(
-                    self._make_ai_request(prompt),
-                    timeout=Config.AI_REQUEST_TIMEOUT
-                )
+                response = await self._make_ai_request(prompt)
                 
                 if response and response.strip():
                     # Очищаем ответ от неподдерживаемых HTML тегов
@@ -458,44 +461,94 @@ class AIPredictionService:
         return None
 
     async def _make_ai_request(self, prompt: str) -> Optional[str]:
-        """Выполняет асинхронный запрос к AI API через executor"""
-        
+        """Выполняет асинхронный запрос к AI API через executor с перебором моделей"""
         import asyncio
         import concurrent.futures
-        
-        def sync_request():
-            """Синхронный запрос к AI"""
-            try:
-                logger.info(f"🔗 Отправляем запрос к AI API...")
-                
-                response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.7,
-                    max_tokens=800,
-                    timeout=25  # Максимальный таймаут для стабильности (30с - 5с на обработку)
-                )
-                
-                if response.choices:
-                    content = response.choices[0].message.content
-                    logger.info(f"✅ Получен ответ от AI ({len(content) if content else 0} символов)")
-                    return content
-                else:
-                    logger.warning("⚠️ AI ответ не содержит choices")
+        models_to_try = [
+            "gpt-4o",
+            "gpt-4",
+            "gpt-3.5-turbo"
+        ]
+        last_error = None
+        for model_name in models_to_try:
+            def sync_request():
+                try:
+                    logger.info(f"🔗 Пробуем модель: {model_name}")
+                    response = self.client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.7,
+                        max_tokens=800,
+                        timeout=25
+                    )
+                    if response.choices:
+                        content = response.choices[0].message.content
+                        logger.info(f"✅ Получен ответ от AI ({len(content) if content else 0} символов) с моделью {model_name}")
+                        return content
+                    else:
+                        logger.warning(f"⚠️ AI ответ не содержит choices (модель: {model_name})")
+                        return None
+                except Exception as e:
+                    logger.error(f"❌ Ошибка AI запроса с моделью {model_name}: {e}")
                     return None
-                    
+            try:
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(None, sync_request)
+                if result:
+                    return result
             except Exception as e:
-                logger.error(f"❌ Ошибка синхронного AI запроса: {e}")
-                return None
-        
+                last_error = e
+                logger.error(f"❌ Критическая ошибка AI запроса с моделью {model_name}: {e}")
+        if last_error:
+            logger.error(f"❌ Все попытки AI запроса завершились ошибками: {last_error}")
+        return None
+
+    async def get_chat_completion(self, prompt: str, messages_history: list = None) -> Optional[str]:
+        """Метод для получения чат-завершения от AI с перебором моделей"""
+        if not self.client:
+            logger.warning("AI клиент недоступен")
+            return None
+        models_to_try = [
+            "gpt-4o-mini-2024-07-18",
+            "gpt-4o-mini",
+            "gpt-4o",
+            "gpt-4o-latest",
+            "gpt-4",
+            "gpt-3.5-turbo"
+        ]
+        last_error = None
         try:
-            # Выполняем в отдельном потоке
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, sync_request)
-            return result
-            
+            messages = []
+            if messages_history:
+                messages.extend(messages_history)
+            messages.append({"role": "user", "content": prompt})
+            for model_name in models_to_try:
+                def sync_chat_request():
+                    try:
+                        logger.info(f"🔗 Пробуем модель: {model_name}")
+                        response = self.client.chat.completions.create(
+                            model=model_name,
+                            messages=messages,
+                            temperature=0.7,
+                            max_tokens=400,
+                            timeout=20
+                        )
+                        if response.choices:
+                            return response.choices[0].message.content
+                        return None
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка чат-запроса с моделью {model_name}: {e}")
+                        return None
+                import asyncio
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(None, sync_chat_request)
+                if result:
+                    logger.info(f"✅ Получен чат-ответ от AI ({len(result)} символов) с моделью {model_name}")
+                    return result
+            logger.error(f"❌ Все попытки чат-запроса завершились ошибками")
+            return None
         except Exception as e:
-            logger.error(f"❌ Критическая ошибка AI запроса: {e}")
+            logger.error(f"❌ Ошибка get_chat_completion: {e}")
             return None
 
     async def generate_compatibility_report(

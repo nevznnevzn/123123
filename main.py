@@ -13,7 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 from pytz import timezone
 
 from config import Config
-from database import DatabaseManager
+from database_async import AsyncDatabaseManager
 from services.motivation_service import send_daily_motivation
 from utils import set_bot_commands
 
@@ -99,8 +99,8 @@ async def main():
     
     logger.info("🚀 Запуск SolarBalance бота...")
     logger.info(f"📊 Режим работы: {Config.ENVIRONMENT}")
-    logger.info(f"🗄️ База данных: {Config.get_database_url()}")
-    logger.info(f"🤖 AI включен: {Config.AI_ENABLED}")
+    logger.info(f"🗄️ База данных: {Config.DATABASE_URL}")
+    logger.info(f"🤖 AI включен: {'Да' if Config.AI_API else 'Нет'}")
     
     # Глобальные переменные
     global bot_instance, dp_instance, scheduler_instance
@@ -111,8 +111,12 @@ async def main():
         
         # База данных с проверкой
         try:
-            db_manager = DatabaseManager(Config.get_database_url())
-            logger.info("✅ База данных инициализирована")
+            from database_async import async_db_manager
+            # Инициализируем глобальный экземпляр с правильным URL
+            async_db_manager.database_url = Config.DATABASE_URL
+            await async_db_manager.init_db()
+            logger.info("✅ Асинхронная база данных инициализирована")
+            db_manager = async_db_manager  # Используем глобальный экземпляр
         except Exception as e:
             logger.error(f"❌ Ошибка инициализации базы данных: {e}")
             raise
@@ -120,7 +124,7 @@ async def main():
         # Бот
         try:
             bot_instance = Bot(
-                token=Config.TOKEN, 
+                token=Config.BOT_TOKEN, 
                 default=DefaultBotProperties(parse_mode=ParseMode.HTML)
             )
             logger.info("✅ Бот инициализирован")
@@ -129,7 +133,7 @@ async def main():
             raise
         
         # Диспетчер
-        dp_instance = Dispatcher(storage=storage, db_manager=db_manager, bot=bot_instance)
+        dp_instance = Dispatcher(storage=storage, bot=bot_instance)
         
         # --- Импорты роутеров ---
         try:
@@ -163,7 +167,7 @@ async def main():
         # --- Регистрация роутеров ---
         try:
             # Админ роутер с middleware
-            admin_router = create_admin_router()
+            admin_router = create_admin_router(db_manager=async_db_manager)
             auth_middleware = AdminAuthMiddleware(admin_ids=Config.ADMIN_IDS)
             admin_router.message.middleware(auth_middleware)
             admin_router.callback_query.middleware(auth_middleware)
@@ -171,11 +175,11 @@ async def main():
 
             # Основные роутеры
             dp_instance.include_router(
-                create_profile_router(db_manager=db_manager, astro_service=astro_service)
+                create_profile_router(db_manager=async_db_manager, astro_service=astro_service, async_db_manager=async_db_manager)
             )
             dp_instance.include_router(
                 create_natal_chart_router(
-                    db_manager=db_manager,
+                    db_manager=async_db_manager,
                     astro_service=astro_service,
                     subscription_service=subscription_service,
                 )
@@ -206,7 +210,7 @@ async def main():
             scheduler_instance.add_job(
                 send_daily_motivation,
                 trigger=CronTrigger(hour=10, minute=0),
-                kwargs={"bot": bot_instance, "db_manager": db_manager},
+                kwargs={"bot": bot_instance, "db_manager": async_db_manager},
                 id="daily_motivation",
                 replace_existing=True,
             )
@@ -222,8 +226,26 @@ async def main():
         # --- Запуск бота ---
         logger.info("🚀 Запуск polling...")
         
-        # Очищаем pending updates
-        await bot_instance.delete_webhook(drop_pending_updates=True)
+        # Очищаем pending updates более агрессивно
+        try:
+            await bot_instance.delete_webhook(drop_pending_updates=True)
+            logger.info("✅ Webhook очищен")
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка очистки webhook: {e}")
+        
+        # Дополнительная очистка через API
+        try:
+            await bot_instance.get_updates(offset=-1, limit=1)
+            logger.info("✅ Pending updates очищены")
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка очистки pending updates: {e}")
+        
+        # Еще одна попытка очистки с большим offset
+        try:
+            await bot_instance.get_updates(offset=999999999, limit=1)
+            logger.info("✅ Дополнительная очистка выполнена")
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка дополнительной очистки: {e}")
         
         # Запускаем polling
         await dp_instance.start_polling(
@@ -261,7 +283,7 @@ async def main():
 if __name__ == "__main__":
     try:
         # Проверяем конфигурацию перед запуском
-        if not Config.TOKEN:
+        if not Config.BOT_TOKEN:
             print("❌ КРИТИЧЕСКАЯ ОШИБКА: BOT_TOKEN не найден!")
             print("Создайте .env файл и укажите BOT_TOKEN")
             sys.exit(1)

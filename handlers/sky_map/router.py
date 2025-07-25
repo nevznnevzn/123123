@@ -6,7 +6,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
-from database import db_manager
+from database_async import async_db_manager
 from keyboards import Keyboards
 from services.astro_calculations import AstroService
 from services.sky_visualization_service import SkyVisualizationService
@@ -30,7 +30,7 @@ async def sky_map_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
     # Проверяем заполнен ли профиль
-    user_profile = db_manager.get_user_profile(user_id)
+    user_profile = await async_db_manager.get_user_profile(user_id)
     if not user_profile or not user_profile.is_profile_complete:
         await message.answer(
             "🌌 <b>Звёздное небо</b> ✨\n\n"
@@ -56,7 +56,7 @@ async def create_my_sky(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
 
     # Получаем профиль пользователя
-    user_profile = db_manager.get_user_profile(user_id)
+    user_profile = await async_db_manager.get_user_profile(user_id)
     if not user_profile or not user_profile.is_profile_complete:
         await callback.answer("Необходимо заполнить профиль", show_alert=True)
         return

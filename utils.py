@@ -1,27 +1,42 @@
 import calendar
 from datetime import datetime, timedelta
-from typing import Tuple
+from typing import List, Tuple
 
 from aiogram import Bot
-from aiogram.types import BotCommand, BotCommandScopeDefault
+from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 
 
-async def set_bot_commands(bot: Bot):
+async def set_bot_commands(bot: Bot, admin_ids: List[int] = None):
     """
     Устанавливает команды для бота в меню Telegram.
+    Для обычных пользователей - только /start
+    Для админов - только /start и /admin
     """
-    commands = [
-        BotCommand(command="/start", description="🚀 Перезапустить бота"),
-        BotCommand(command="/profile", description="👤 Мой профиль"),
-        BotCommand(command="/natal", description="🔮 Натальная карта"),
-        BotCommand(command="/predictions", description="✨ Мои прогнозы"),
-        BotCommand(command="/compatibility", description="💞 Совместимость"),
-        BotCommand(command="/advice", description="🌟 Совет от звезд"),
-        BotCommand(command="/sky_map", description="🗺️ Карта неба"),
-        BotCommand(command="/subscription", description="💎 Управление подпиской"),
-        BotCommand(command="/help", description="❓ Помощь"),
+    # Команды для обычных пользователей (только /start)
+    user_commands = [
+        BotCommand(command="/start", description="🚀 Запустить бота"),
     ]
-    await bot.set_my_commands(commands, BotCommandScopeDefault())
+
+    # Команды для админов (только /start и /admin)
+    admin_commands = [
+        BotCommand(command="/start", description="🚀 Перезапустить бота"),
+        BotCommand(command="/admin", description="🔧 Админ-панель"),
+    ]
+
+    # Устанавливаем команды по умолчанию для всех пользователей
+    await bot.set_my_commands(user_commands, BotCommandScopeDefault())
+
+    # Устанавливаем команды для админов
+    if admin_ids:
+        for admin_id in admin_ids:
+            try:
+                await bot.set_my_commands(
+                    admin_commands,
+                    BotCommandScopeChat(chat_id=admin_id)
+                )
+            except Exception as e:
+                # Игнорируем ошибки для недоступных чатов админов
+                print(f"Не удалось установить команды для админа {admin_id}: {e}")
 
 
 def get_prediction_period(

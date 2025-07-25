@@ -80,9 +80,17 @@ async def setup_database() -> None:
         sys.exit(1)
 
 
-async def startup_tasks() -> None:
+async def startup_tasks(bot: Bot) -> None:
     """Задачи при запуске бота"""
     await setup_database()
+    
+    # Устанавливаем команды бота
+    from utils import set_bot_commands
+    try:
+        await set_bot_commands(bot, admin_ids=Config.ADMIN_IDS)
+        logger.info("Команды бота установлены")
+    except Exception as e:
+        logger.warning(f"Ошибка установки команд: {e}")
     
     # Очищаем устаревшие прогнозы
     try:
@@ -112,7 +120,7 @@ async def main() -> None:
         await register_handlers(dp)
         
         # Задачи при запуске
-        await startup_tasks()
+        await startup_tasks(bot)
         
         # Запуск бота
         logger.info("Бот запущен и готов к работе")

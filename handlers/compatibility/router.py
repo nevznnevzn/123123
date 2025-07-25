@@ -4,7 +4,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
-from database import db_manager
+from database_async import async_db_manager
 from keyboards import Keyboards
 from services.ai_predictions import AIPredictionService
 from services.astro_calculations import AstroService
@@ -19,7 +19,7 @@ ai_service = AIPredictionService()
 async def compatibility_start(message: Message, state: FSMContext):
     """Меню совместимости: показывает список отчетов или предлагает создать первый."""
     await state.clear()
-    user = db_manager.get_user_profile(message.from_user.id)
+    user = await async_db_manager.get_user_profile(message.from_user.id)
 
     if not user or not user.is_profile_complete:
         await message.answer(
@@ -28,7 +28,7 @@ async def compatibility_start(message: Message, state: FSMContext):
         )
         return
 
-    reports = db_manager.get_user_compatibility_reports(user.id)
+    reports = await async_db_manager.get_user_compatibility_reports(user.id)
 
     if not reports:
         text = "💕 <b>Астрологическая совместимость</b> ✨\n\n💫 У вас пока нет сохраненных отчетов.\n🌹 Хотите создать первый?"
@@ -149,7 +149,7 @@ async def process_compatibility_sphere(callback: CallbackQuery, state: FSMContex
         "⏳ <b>Звезды анализируют совместимость...</b> 💕\n\n✨ Это может занять до 45 секунд."
     )
 
-    user_profile = db_manager.get_user_profile(callback.from_user.id)
+    user_profile = await async_db_manager.get_user_profile(callback.from_user.id)
     partner_data = await state.get_data()
 
     # Рассчитываем планеты для пользователя и партнера
@@ -181,7 +181,7 @@ async def process_compatibility_sphere(callback: CallbackQuery, state: FSMContex
 
     # Если генерация не удалась
     if not report_text:
-        reports = db_manager.get_user_compatibility_reports(user_profile.id)
+        reports = await async_db_manager.get_user_compatibility_reports(user_profile.id)
         await callback.message.edit_text(
             "К сожалению, не удалось сгенерировать отчет. Попробуйте позже.",
             reply_markup=Keyboards.compatibility_reports_list(reports),
@@ -200,7 +200,7 @@ async def process_compatibility_sphere(callback: CallbackQuery, state: FSMContex
             report_text = truncated + "..."
 
     # Сохраняем отчет в БД
-    saved_report = db_manager.save_compatibility_report(
+    saved_report = await async_db_manager.save_compatibility_report(
         user_id=user_profile.id,
         user_name=user_profile.name,
         partner_name=partner_data.get("partner_name"),
@@ -221,8 +221,9 @@ async def process_compatibility_sphere(callback: CallbackQuery, state: FSMContex
 async def view_compatibility_report(callback: CallbackQuery):
     """Просмотр сохраненного отчета о совместимости."""
     report_id = int(callback.data.split("_")[3])
-    user_id = db_manager.get_user_profile(callback.from_user.id).id
-    report = db_manager.get_compatibility_report_by_id(report_id, user_id)
+    user_profile = await async_db_manager.get_user_profile(callback.from_user.id)
+    user_id = user_profile.id
+    report = await async_db_manager.get_compatibility_report_by_id(report_id, user_id)
 
     if report:
         report_text = report.report_text
@@ -258,16 +259,16 @@ async def delete_compatibility_report(callback: CallbackQuery):
 async def confirm_delete_compatibility_report(callback: CallbackQuery):
     """Подтверждение удаления отчета и возврат к списку."""
     report_id = int(callback.data.split("_")[4])
-    user = db_manager.get_user_profile(callback.from_user.id)
+    user = await async_db_manager.get_user_profile(callback.from_user.id)
 
-    success = db_manager.delete_compatibility_report(report_id, user.id)
+    success = await async_db_manager.delete_compatibility_report(report_id, user.id)
     if success:
         await callback.answer("Отчет удален.", show_alert=True)
     else:
         await callback.answer("Не удалось удалить отчет.", show_alert=True)
 
     # Обновляем список отчетов
-    reports = db_manager.get_user_compatibility_reports(user.id)
+    reports = await async_db_manager.get_user_compatibility_reports(user.id)
 
     if not reports:
         text = "💕 <b>Астрологическая совместимость</b> ✨\n\n💫 У вас пока нет сохраненных отчетов.\n🌹 Хотите создать первый?"
@@ -282,8 +283,8 @@ async def confirm_delete_compatibility_report(callback: CallbackQuery):
 @router.callback_query(F.data == "back_to_comp_reports")
 async def back_to_comp_reports_list(callback: CallbackQuery):
     """Возврат к списку отчетов о совместимости."""
-    user = db_manager.get_user_profile(callback.from_user.id)
-    reports = db_manager.get_user_compatibility_reports(user.id)
+    user = await async_db_manager.get_user_profile(callback.from_user.id)
+    reports = await async_db_manager.get_user_compatibility_reports(user.id)
 
     if not reports:
         text = "💕 <b>Астрологическая совместимость</b> ✨\n\n💫 У вас пока нет сохраненных отчетов.\n🌹 Хотите создать первый?"

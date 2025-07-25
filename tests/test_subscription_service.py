@@ -76,7 +76,7 @@ class TestSubscriptionService:
         assert status["is_active"] is True
 
     @patch.object(SubscriptionService, "is_user_premium")
-    def test_filter_planets_for_premium_user(self, mock_is_premium):
+    async def test_filter_planets_for_premium_user(self, mock_is_premium):
         """Тест: фильтрация планет для премиум пользователя"""
         mock_is_premium.return_value = True
 
@@ -88,7 +88,7 @@ class TestSubscriptionService:
         }
 
         service = SubscriptionService()
-        filtered = service.filter_planets_for_user(planets, 123456)
+        filtered = await service.filter_planets_for_user(planets, 123456)
 
         # Премиум пользователи видят все планеты
         assert len(filtered) == 4
@@ -96,7 +96,7 @@ class TestSubscriptionService:
         assert "Венера" in filtered
 
     @patch.object(SubscriptionService, "is_user_premium")
-    def test_filter_planets_for_free_user(self, mock_is_premium):
+    async def test_filter_planets_for_free_user(self, mock_is_premium):
         """Тест: фильтрация планет для бесплатного пользователя"""
         mock_is_premium.return_value = False
 
@@ -109,7 +109,7 @@ class TestSubscriptionService:
         }
 
         service = SubscriptionService()
-        filtered = service.filter_planets_for_user(planets, 123456)
+        filtered = await service.filter_planets_for_user(planets, 123456)
 
         # Бесплатные пользователи видят только основные планеты
         assert len(filtered) == 3

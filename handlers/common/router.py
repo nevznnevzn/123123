@@ -2,31 +2,20 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
-    BotCommand,
     CallbackQuery,
     FSInputFile,
-    MenuButtonCommands,
     Message,
     ReplyKeyboardRemove,
 )
 
-from database import db_manager
+from database_async import async_db_manager
 from keyboards import Keyboards
 from states import AstroStates
 
 router = Router()
 
 
-async def setup_bot_commands(bot: Bot):
-    """Настройка команд бота и кнопки меню"""
-    commands = [
-        BotCommand(command="start", description="🚀 Запустить бота"),
-        BotCommand(command="menu", description="📋 Главное меню"),
-        BotCommand(command="reset_data", description="🗑️ Удалить все данные (отладка)"),
-    ]
-    await bot.set_my_commands(commands)
-    menu_button = MenuButtonCommands()
-    await bot.set_chat_menu_button(menu_button=menu_button)
+# Функция setup_bot_commands удалена - команды теперь устанавливаются централизованно в utils.py
 
 
 def format_charts_count_bold(count: int) -> str:
@@ -42,9 +31,9 @@ def format_charts_count_bold(count: int) -> str:
     return f"<b>{count}</b> сохраненных натальных карт"
 
 
-def get_main_menu(user_id: int):
+async def get_main_menu(user_id: int):
     """Получить главное меню в зависимости от завершенности профиля пользователя"""
-    user_profile = db_manager.get_user_profile(user_id)
+    user_profile = await async_db_manager.get_user_profile(user_id)
     if not user_profile or not user_profile.is_profile_complete:
         return Keyboards.setup_profile()
     return Keyboards.main_menu()
@@ -54,7 +43,7 @@ def get_main_menu(user_id: int):
 async def cmd_start(message: Message, state: FSMContext):
     """Обработчик команды /start"""
     await state.clear()
-    user, created = db_manager.get_or_create_user(
+    user, created = await async_db_manager.get_or_create_user(
         telegram_id=message.from_user.id, name=message.from_user.full_name
     )
 
@@ -67,13 +56,14 @@ async def cmd_start(message: Message, state: FSMContext):
             "пожалуйста, сначала настройте свой профиль."
         )
         await message.answer_photo(
-            photo="https://i.imgur.com/your-image.png",  # Замените на реальную ссылку
+            photo=FSInputFile("pics/922c9d2c-034f-4f06-98a1-bb42c153410e.png"),
             caption=text,
             reply_markup=Keyboards.setup_profile(),
         )
     else:
         # Если пользователь вернулся и профиль заполнен
-        has_charts = len(db_manager.get_user_charts(user.telegram_id)) > 0
+        charts = await async_db_manager.get_user_charts(user.telegram_id)
+        has_charts = len(charts) > 0
         text = (
             f"🎉 <b>С возвращением, {message.from_user.first_name}!</b>\n\n"
             "Рад снова вас видеть! Чем я могу вам помочь сегодня?"
@@ -87,7 +77,7 @@ async def cmd_menu(message: Message, state: FSMContext):
     await state.clear()
 
     user_id = message.from_user.id
-    user_profile = db_manager.get_user_profile(user_id)
+    user_profile = await async_db_manager.get_user_profile(user_id)
     profile_complete = user_profile and user_profile.is_profile_complete
 
     if not profile_complete:
@@ -95,7 +85,7 @@ async def cmd_menu(message: Message, state: FSMContext):
     else:
         text = "📋 <b>Главное меню</b> ✨"
 
-    await message.answer(text, reply_markup=get_main_menu(user_id))
+    await message.answer(text, reply_markup=await get_main_menu(user_id))
 
 
 @router.message(Command("reset_data"))
@@ -113,7 +103,7 @@ async def cmd_reset_data(message: Message):
 async def cmd_confirm_reset(message: Message):
     """Подтверждение сброса данных"""
     user_id = message.from_user.id
-    db_manager.delete_user_data(user_id)
+    await async_db_manager.delete_user_data(user_id)
 
     await message.answer(
         "✅ Все ваши данные были успешно удалены.\n"
@@ -128,14 +118,14 @@ async def back_to_menu(message: Message, state: FSMContext):
     await state.clear()
 
     user_id = message.from_user.id
-    user_profile = db_manager.get_user_profile(user_id)
+    user_profile = await async_db_manager.get_user_profile(user_id)
 
     if user_profile and user_profile.is_profile_complete:
         text = "📋 <b>Добро пожаловать!</b> ✨\n\nВы вернулись в главное меню."
     else:
         text = "📝 <b>Завершите настройку</b> ⚙️\n\nПожалуйста, завершите настройку профиля."
 
-    await message.answer(text, reply_markup=get_main_menu(user_id))
+    await message.answer(text, reply_markup=await get_main_menu(user_id))
 
 
 @router.callback_query(F.data == "back_to_main_menu")
@@ -143,7 +133,8 @@ async def back_to_main_menu_callback(callback: CallbackQuery, state: FSMContext)
     """Обработчик кнопки 'В главное меню'"""
     await state.clear()
 
-    has_charts = len(db_manager.get_user_charts(callback.from_user.id)) > 0
+    charts = await async_db_manager.get_user_charts(callback.from_user.id)
+    has_charts = len(charts) > 0
 
     await callback.message.edit_text(
         "🔮 <b>Главное меню</b>\n\nВыберите, что вас интересует:", reply_markup=None
@@ -161,7 +152,8 @@ async def back_to_main_callback(callback: CallbackQuery, state: FSMContext):
     """Обработчик кнопки 'В главное меню' (альтернативный callback)"""
     await state.clear()
 
-    has_charts = len(db_manager.get_user_charts(callback.from_user.id)) > 0
+    charts = await async_db_manager.get_user_charts(callback.from_user.id)
+    has_charts = len(charts) > 0
 
     await callback.message.edit_text(
         "🔮 <b>Главное меню</b>\n\nВыберите, что вас интересует:", reply_markup=None
@@ -179,7 +171,8 @@ async def main_menu_callback(callback: CallbackQuery, state: FSMContext):
     """Обработчик кнопки 'Главное меню' (для модуля звездного неба)"""
     await state.clear()
 
-    has_charts = len(db_manager.get_user_charts(callback.from_user.id)) > 0
+    charts = await async_db_manager.get_user_charts(callback.from_user.id)
+    has_charts = len(charts) > 0
 
     await callback.message.edit_text(
         "🔮 <b>Главное меню</b>\n\nВыберите, что вас интересует:", reply_markup=None
@@ -205,7 +198,7 @@ async def delete_account_callback(callback: CallbackQuery):
 @router.callback_query(F.data == "confirm_delete_account")
 async def confirm_delete_account_callback(callback: CallbackQuery):
     """Окончательное удаление аккаунта"""
-    deleted, charts_count = db_manager.delete_user_completely(callback.from_user.id)
+    deleted, charts_count = await async_db_manager.delete_user_completely(callback.from_user.id)
     if deleted:
         await callback.message.edit_text(
             f"Ваш аккаунт и {charts_count} натальных карт были успешно удалены. "
@@ -220,9 +213,8 @@ async def confirm_delete_account_callback(callback: CallbackQuery):
 async def handle_unknown_message(message: Message, state: FSMContext):
     """Обработчик для неизвестных сообщений."""
     await message.answer(
-        "😕 <b>Не понимаю эту команду</b> 🤔\n\n"
-        "⭐ Пожалуйста, используйте кнопки меню или введите одну из доступных команд: /start, /help, /menu.",
-        reply_markup=get_main_menu(message.from_user.id),
+        "😕 <b>Не понимаю эту команду</b> 🤔",
+        reply_markup=await get_main_menu(message.from_user.id),
     )
 
 

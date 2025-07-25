@@ -374,7 +374,26 @@ class AstroService:
             logger.error("Недостаточно данных для расчета натальной карты")
             return {}
 
-        return await self.calculator.calculate_planets(birth_date, location)
+        # Рассчитываем планеты
+        planets = await self.calculator.calculate_planets(birth_date, location)
+        
+        # Добавляем Асцендент
+        try:
+            from .house_calculator import HouseCalculator
+            house_calculator = HouseCalculator()
+            
+            asc_mc = house_calculator.get_ascendant_midheaven(birth_date, location)
+            if asc_mc:
+                ascendant_longitude, _ = asc_mc
+                ascendant_sign, ascendant_degree = get_zodiac_sign(ascendant_longitude)
+                planets["Асцендент"] = PlanetPosition(sign=ascendant_sign, degree=ascendant_degree)
+                logger.info(f"Асцендент добавлен: {ascendant_sign} {ascendant_degree:.2f}°")
+            else:
+                logger.warning("Не удалось рассчитать Асцендент")
+        except Exception as e:
+            logger.error(f"Ошибка при расчете Асцендента: {e}")
+
+        return planets
 
     def get_planet_description(self, planet_name: str, sign: str) -> str:
         """Получить описание планеты в знаке из zodiac_data.json"""
@@ -405,7 +424,7 @@ class AstroService:
         if not planets:
             return False, "Планеты не рассчитаны"
 
-        expected_planets = len(AstroCalculator.PLANETS_TO_CALCULATE)
+        expected_planets = len(AstroCalculator.PLANETS_TO_CALCULATE) + 1  # +1 для Асцендента
         actual_planets = len(planets)
 
         if actual_planets < expected_planets:

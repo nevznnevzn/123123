@@ -40,7 +40,7 @@ def create_natal_chart_router(
         """Меню для управления натальными картами"""
         await state.clear()
         user_id = message.from_user.id
-        existing_charts = db_manager.get_user_charts(user_id)
+        existing_charts = await db_manager.get_user_charts(user_id)
 
         if existing_charts:
             text = f"🌟 <b>Натальные карты</b> ✨\n\n📊 У вас {format_charts_count(len(existing_charts))}.\n🔮 Вы можете просмотреть их, удалить или создать новую."
@@ -64,12 +64,12 @@ def create_natal_chart_router(
         chart_type = callback.data.split("_")[2]
         user_id = callback.from_user.id
 
-        user, _ = db_manager.get_or_create_user(user_id, callback.from_user.full_name)
+        user, _ = await db_manager.get_or_create_user(user_id, callback.from_user.full_name)
 
         # Проверка лимитов для бесплатных пользователей
-        is_premium = subscription_service.is_user_premium(user_id)
+        is_premium = await subscription_service.is_user_premium(user_id)
         if not is_premium:
-            existing_charts = db_manager.get_user_charts(user_id)
+            existing_charts = await db_manager.get_user_charts(user_id)
             if (
                 len(existing_charts)
                 >= subscription_service.FREE_USER_LIMITS["natal_charts"]
@@ -82,7 +82,7 @@ def create_natal_chart_router(
                 return
 
         if chart_type == "own":
-            user_profile = db_manager.get_user_profile(user_id)
+            user_profile = await db_manager.get_user_profile(user_id)
 
             if not user_profile or not user_profile.is_profile_complete:
                 await callback.answer(
@@ -122,7 +122,7 @@ def create_natal_chart_router(
         has_warning = not user_profile.birth_time_specified
         planets_data = await astro_service.calculate_natal_chart(birth_dt, location)
 
-        new_chart = db_manager.create_natal_chart(
+        new_chart = await db_manager.create_natal_chart(
             telegram_id=callback.from_user.id,
             name=f"Моя карта ({user_profile.name})",
             chart_type="own",
@@ -241,7 +241,7 @@ def create_natal_chart_router(
         """Завершение расчета для чужой карты"""
         planets_data = await astro_service.calculate_natal_chart(birth_dt, location)
 
-        new_chart = db_manager.create_natal_chart(
+        new_chart = await db_manager.create_natal_chart(
             telegram_id=message.from_user.id,
             name=f"Карта для {other_name}",
             chart_type="other",
@@ -287,8 +287,8 @@ def create_natal_chart_router(
             time_info = ""
 
         user_id = message.chat.id
-        is_premium = subscription_service.is_user_premium(user_id)
-        available_planets = subscription_service.filter_planets_for_user(
+        is_premium = await subscription_service.is_user_premium(user_id)
+        available_planets = await subscription_service.filter_planets_for_user(
             planets_data, user_id
         )
 
@@ -335,7 +335,7 @@ def create_natal_chart_router(
         await callback.answer()
 
         user_id = callback.from_user.id
-        chart = db_manager.get_chart_by_id(chart_id, user_id)
+        chart = await db_manager.get_chart_by_id(chart_id, user_id)
 
         if not chart:
             await callback.message.edit_text(
@@ -382,7 +382,7 @@ def create_natal_chart_router(
         """Обработчик выбора конкретной карты из списка"""
         chart_id = int(callback.data.split("_")[1])
         user_id = callback.from_user.id
-        chart = db_manager.get_chart_by_id(chart_id, user_id)
+        chart = await db_manager.get_chart_by_id(chart_id, user_id)
 
         if not chart:
             await callback.answer("Карта не найдена!", show_alert=True)
@@ -406,7 +406,7 @@ def create_natal_chart_router(
         """Открытие (отображение) существующей натальной карты"""
         chart_id = int(callback.data.split("_")[2])
         user_id = callback.from_user.id
-        chart = db_manager.get_chart_by_id(chart_id, user_id)
+        chart = await db_manager.get_chart_by_id(chart_id, user_id)
 
         if not chart:
             await callback.answer("Карта не найдена!", show_alert=True)
@@ -437,7 +437,7 @@ def create_natal_chart_router(
         """Запрос подтверждения на удаление карты"""
         chart_id = int(callback.data.split("_")[2])
         user_id = callback.from_user.id
-        chart = db_manager.get_chart_by_id(chart_id, user_id)
+        chart = await db_manager.get_chart_by_id(chart_id, user_id)
 
         if not chart:
             await callback.answer("Карта не найдена!", show_alert=True)
@@ -461,14 +461,14 @@ def create_natal_chart_router(
         try:
             chart_id = int(callback.data.split("_")[3])
             user_id = callback.from_user.id
-            chart = db_manager.get_chart_by_id(chart_id, user_id)
+            chart = await db_manager.get_chart_by_id(chart_id, user_id)
             if chart:
                 chart_name = (
                     f"карта для {chart.chart_owner_name}"
                     if chart.chart_type == "other"
                     else "ваша карта"
                 )
-                success = db_manager.delete_natal_chart(chart_id, user_id)
+                success = await db_manager.delete_chart(chart_id, user_id)
                 text = (
                     f"✅ Успешно удалена {chart_name}."
                     if success
@@ -477,7 +477,7 @@ def create_natal_chart_router(
             else:
                 text = "Карта уже была удалена."
 
-            existing_charts = db_manager.get_user_charts(user_id)
+            existing_charts = await db_manager.get_user_charts(user_id)
             await callback.message.edit_text(
                 f"{text}\n\n🔮 Меню натальных карт",
                 reply_markup=Keyboards.natal_charts_list(existing_charts),

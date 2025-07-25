@@ -24,23 +24,25 @@ def astro_service():
     return AstroService()
 
 
-def test_calculate_planets_is_deterministic(calculator: AstroCalculator):
+@pytest.mark.asyncio
+async def test_calculate_planets_is_deterministic(calculator: AstroCalculator):
     """
-    Тест проверяет, что для одной и той же даты рождения 
+    Тест проверяет, что для одной и той же даты рождения
     результат вычислений всегда одинаковый.
     """
     birth_date = datetime(1990, 5, 15)
     location = Location(city="Test City", lat=0, lng=0, timezone="UTC")
     
     # Вызываем функцию дважды с одинаковыми данными
-    planets1 = calculator.calculate_planets(birth_date, location)
-    planets2 = calculator.calculate_planets(birth_date, location)
+    planets1 = await calculator.calculate_planets(birth_date, location)
+    planets2 = await calculator.calculate_planets(birth_date, location)
     
     # Сравниваем результаты
     assert planets1 == planets2
 
 
-def test_planets_basic_validation(calculator: AstroCalculator):
+@pytest.mark.asyncio
+async def test_planets_basic_validation(calculator: AstroCalculator):
     """
     Тест проверяет базовую валидность астрологических расчетов.
     Проверяем, что все планеты рассчитаны корректно и находятся в допустимых пределах.
@@ -48,7 +50,7 @@ def test_planets_basic_validation(calculator: AstroCalculator):
     birth_date = datetime(1990, 5, 15, 12, 0)
     location = Location(city="Test City", lat=0, lng=0, timezone="UTC")
 
-    planets = calculator.calculate_planets(birth_date, location)
+    planets = await calculator.calculate_planets(birth_date, location)
 
     # Проверяем, что все основные планеты присутствуют
     expected_planets = [

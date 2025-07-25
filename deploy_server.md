@@ -1,87 +1,67 @@
-# 🚀 Развертывание SolarBalance на сервере (без Docker)
+# 🚀 Руководство по деплою Solar Balance Bot на сервер
 
 ## 📋 Требования к серверу
 
-### Минимальные требования:
-- **ОС**: Ubuntu 20.04+ / CentOS 8+ / Debian 11+
-- **RAM**: 2GB минимум (рекомендуется 4GB)
-- **CPU**: 1 ядро (рекомендуется 2 ядра)
-- **Диск**: 10GB свободного места
-- **Python**: 3.9+ (рекомендуется 3.11)
-
-### Сетевые требования:
-- Исходящие соединения к Telegram API
-- Исходящие соединения к OpenAI/Bothub API
-- Опционально: PostgreSQL сервер
+- **ОС:** Ubuntu 20.04+ / Debian 11+ / CentOS 8+
+- **Python:** 3.9+ (рекомендуется 3.11+)
+- **RAM:** минимум 512MB (рекомендуется 1GB+)
+- **Диск:** минимум 2GB свободного места
+- **Сеть:** стабильное интернет-соединение
 
 ## 🔧 Подготовка сервера
 
-### 1. Обновление системы и установка зависимостей
-
+### 1. Обновление системы
 ```bash
-# Ubuntu/Debian
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3 python3-pip python3-venv git curl wget
-sudo apt install -y build-essential python3-dev
-sudo apt install -y postgresql-client  # если используете PostgreSQL
-
-# CentOS/RHEL
-sudo yum update -y
-sudo yum install -y python3 python3-pip python3-venv git curl wget
-sudo yum groupinstall -y "Development Tools"
-sudo yum install -y python3-devel
 ```
 
-### 2. Создание пользователя для бота
-
+### 2. Установка Python и зависимостей
 ```bash
-# Создаем отдельного пользователя для безопасности
-sudo useradd -m -s /bin/bash solarbalance
-sudo usermod -aG sudo solarbalance  # если нужны sudo права
+# Установка Python 3.11
+sudo apt install python3.11 python3.11-venv python3.11-dev python3-pip -y
+
+# Установка системных зависимостей
+sudo apt install git curl wget build-essential libssl-dev libffi-dev -y
+
+# Для PostgreSQL (если используется)
+sudo apt install postgresql postgresql-contrib libpq-dev -y
+```
+
+### 3. Создание пользователя для бота
+```bash
+# Создаем пользователя
+sudo useradd -m -s /bin/bash solarbot
+sudo usermod -aG sudo solarbot
 
 # Переключаемся на пользователя
-sudo su - solarbalance
+sudo su - solarbot
 ```
 
-## 📥 Установка проекта
+## 📥 Установка бота
 
 ### 1. Клонирование репозитория
-
 ```bash
-cd /home/solarbalance
-git clone <your-repository-url> solarbalance-bot
-cd solarbalance-bot
+cd /home/solarbot
+git clone https://github.com/your-username/solarbalance.git
+cd solarbalance
 ```
 
 ### 2. Создание виртуального окружения
-
 ```bash
-# Создаем venv
-python3 -m venv venv
-
-# Активируем venv
+python3.11 -m venv venv
 source venv/bin/activate
-
-# Обновляем pip
-pip install --upgrade pip
 ```
 
 ### 3. Установка зависимостей
-
 ```bash
-# Устанавливаем основные зависимости
-pip install -e .
+# Обновляем pip
+pip install --upgrade pip
 
-# Или используем uv для ускорения (рекомендуется)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc
-uv pip install -e .
+# Устанавливаем зависимости
+pip install -r requirements-prod.txt
 ```
 
-## ⚙️ Настройка конфигурации
-
-### 1. Создание файла окружения
-
+### 4. Настройка конфигурации
 ```bash
 # Копируем пример конфигурации
 cp env.example .env
@@ -90,375 +70,228 @@ cp env.example .env
 nano .env
 ```
 
-### 2. Заполнение .env файла
-
+**Содержимое .env файла:**
 ```env
-# Telegram Bot Configuration
-BOT_TOKEN=YOUR_BOT_TOKEN_FROM_BOTFATHER
+# Telegram Bot Token
+BOT_TOKEN=your_bot_token_here
 
-# Database Configuration (SQLite для простоты)
-DATABASE_URL=sqlite+aiosqlite:///solarbalance.db
+# Database
+DATABASE_URL=postgresql+asyncpg://username:password@localhost/solarbalance
+# или для SQLite:
+# DATABASE_URL=sqlite+aiosqlite:///astro_bot.db
 
-# OpenAI API Configuration
-AI_API=YOUR_BOTHUB_OR_OPENAI_API_KEY
-
-# Admin Configuration (ваши Telegram ID)
-ADMIN_IDS=123456789,987654321
-
-# Environment
-ENVIRONMENT=production
+# OpenAI API
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_BASE_URL=https://bothub.chat/api/v2/openai/v1
 
 # Logging
 LOG_LEVEL=INFO
-LOG_FILE=/home/solarbalance/solarbalance-bot/logs/bot.log
+
+# Environment
+ENVIRONMENT=production
 ```
 
-### 3. Создание директорий для логов
+### 5. Настройка базы данных
 
+#### Для PostgreSQL:
 ```bash
-mkdir -p logs
-mkdir -p assets
-chmod 755 logs assets
-```
-
-## 🗄️ Настройка базы данных
-
-### Вариант 1: SQLite (простой)
-
-```bash
-# SQLite будет создана автоматически при первом запуске
-# Убедитесь что путь в .env корректный:
-DATABASE_URL=sqlite+aiosqlite:///$(pwd)/solarbalance.db
-```
-
-### Вариант 2: PostgreSQL (рекомендуется для продакшена)
-
-```bash
-# Установка PostgreSQL
-sudo apt install -y postgresql postgresql-contrib
-
-# Создание базы данных и пользователя
+# Создаем базу данных
 sudo -u postgres psql
-```
-
-```sql
 CREATE DATABASE solarbalance;
-CREATE USER solarbalance_user WITH ENCRYPTED PASSWORD 'secure_password_123';
-GRANT ALL PRIVILEGES ON DATABASE solarbalance TO solarbalance_user;
+CREATE USER solarbot WITH PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE solarbalance TO solarbot;
 \q
+
+# Применяем миграции (если есть)
+python scripts/migrate_to_postgresql.py
 ```
 
+#### Для SQLite:
 ```bash
-# Обновите .env для PostgreSQL
-DATABASE_URL=postgresql+asyncpg://solarbalance_user:secure_password_123@localhost:5432/solarbalance
+# База данных создастся автоматически при первом запуске
 ```
 
-## 🧪 Тестирование установки
+## 🚀 Запуск бота
 
-### 1. Проверка зависимостей
-
+### 1. Тестовый запуск
 ```bash
-source venv/bin/activate
-python -c "import aiogram, swisseph, openai; print('Все зависимости установлены успешно')"
-```
-
-### 2. Тестовый запуск
-
-```bash
-# Активируем venv если не активен
+# Активируем venv
 source venv/bin/activate
 
-# Тестовый запуск бота
-python main_simple.py
+# Запускаем бота
+python main.py
 ```
 
-### 3. Проверка логов
-
+### 2. Настройка systemd сервиса
 ```bash
-# Проверяем логи запуска
-tail -f logs/bot.log
-
-# Или смотрим прямой вывод
-python main_simple.py
+# Создаем файл сервиса
+sudo nano /etc/systemd/system/solarbalance-bot.service
 ```
 
-## 🔧 Настройка systemd сервиса
-
-### 1. Создание systemd сервиса
-
-```bash
-sudo nano /etc/systemd/system/solarbalance.service
-```
-
+**Содержимое сервиса:**
 ```ini
 [Unit]
-Description=SolarBalance Astrology Telegram Bot
+Description=Solar Balance Telegram Bot
 After=network.target postgresql.service
-Wants=network.target
+Wants=postgresql.service
 
 [Service]
 Type=simple
-User=solarbalance
-Group=solarbalance
-WorkingDirectory=/home/solarbalance/solarbalance-bot
-Environment=PATH=/home/solarbalance/solarbalance-bot/venv/bin
-ExecStart=/home/solarbalance/solarbalance-bot/venv/bin/python main_simple.py
-ExecReload=/bin/kill -HUP $MAINPID
+User=solarbot
+Group=solarbot
+WorkingDirectory=/home/solarbot/solarbalance
+Environment=PATH=/home/solarbot/solarbalance/venv/bin
+ExecStart=/home/solarbot/solarbalance/venv/bin/python main.py
 Restart=always
 RestartSec=10
-
-# Безопасность
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/home/solarbalance/solarbalance-bot
-
-# Логи
-StandardOutput=append:/home/solarbalance/solarbalance-bot/logs/systemd.log
-StandardError=append:/home/solarbalance/solarbalance-bot/logs/systemd.log
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-### 2. Активация сервиса
-
+### 3. Активация сервиса
 ```bash
 # Перезагружаем systemd
 sudo systemctl daemon-reload
 
 # Включаем автозапуск
-sudo systemctl enable solarbalance
+sudo systemctl enable solarbalance-bot
 
 # Запускаем сервис
-sudo systemctl start solarbalance
+sudo systemctl start solarbalance-bot
 
 # Проверяем статус
-sudo systemctl status solarbalance
+sudo systemctl status solarbalance-bot
 ```
 
-## 📊 Мониторинг и управление
-
-### Управление сервисом
-
-```bash
-# Запуск
-sudo systemctl start solarbalance
-
-# Остановка
-sudo systemctl stop solarbalance
-
-# Перезапуск
-sudo systemctl restart solarbalance
-
-# Статус
-sudo systemctl status solarbalance
-
-# Логи сервиса
-sudo journalctl -u solarbalance -f
-```
+## 📊 Мониторинг и логи
 
 ### Просмотр логов
-
 ```bash
-# Логи приложения
-tail -f /home/solarbalance/solarbalance-bot/logs/bot.log
-
 # Логи systemd
-sudo journalctl -u solarbalance -f
+sudo journalctl -u solarbalance-bot -f
 
-# Логи за последний час
-sudo journalctl -u solarbalance --since "1 hour ago"
+# Логи приложения
+tail -f /home/solarbot/solarbalance/logs/bot.log
 ```
 
-## 🔐 Безопасность
+### Управление сервисом
+```bash
+# Остановка
+sudo systemctl stop solarbalance-bot
+
+# Перезапуск
+sudo systemctl restart solarbalance-bot
+
+# Перезагрузка конфигурации
+sudo systemctl reload solarbalance-bot
+```
+
+## 🔄 Обновление бота
+
+### 1. Остановка сервиса
+```bash
+sudo systemctl stop solarbalance-bot
+```
+
+### 2. Обновление кода
+```bash
+cd /home/solarbot/solarbalance
+git pull origin main
+```
+
+### 3. Обновление зависимостей
+```bash
+source venv/bin/activate
+pip install -r requirements-prod.txt --upgrade
+```
+
+### 4. Запуск сервиса
+```bash
+sudo systemctl start solarbalance-bot
+```
+
+## 🛡️ Безопасность
 
 ### 1. Настройка файрвола
-
 ```bash
-# Устанавливаем ufw если не установлен
+# Устанавливаем ufw
 sudo apt install ufw
 
-# Разрешаем SSH
+# Настраиваем правила
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
 sudo ufw allow ssh
-
-# Разрешаем PostgreSQL если используете
-sudo ufw allow 5432/tcp
+sudo ufw allow 22
 
 # Включаем файрвол
 sudo ufw enable
 ```
 
-### 2. Права доступа
-
+### 2. Настройка SSH
 ```bash
-# Устанавливаем права на файлы
-chmod 600 .env
-chmod 755 *.py
-chmod -R 755 handlers/ services/
-chmod -R 766 logs/
+# Отключаем root логин
+sudo nano /etc/ssh/sshd_config
+# PermitRootLogin no
+
+# Перезапускаем SSH
+sudo systemctl restart ssh
 ```
 
-### 3. Ротация логов
-
+### 3. Регулярные обновления
 ```bash
-sudo nano /etc/logrotate.d/solarbalance
-```
-
-```
-/home/solarbalance/solarbalance-bot/logs/*.log {
-    daily
-    missingok
-    rotate 52
-    compress
-    delaycompress
-    notifempty
-    create 644 solarbalance solarbalance
-    postrotate
-        systemctl reload solarbalance
-    endscript
-}
-```
-
-## 🔄 Обновление проекта
-
-### Скрипт для обновления
-
-```bash
-nano update_bot.sh
-```
-
-```bash
-#!/bin/bash
-set -e
-
-echo "🔄 Обновление SolarBalance..."
-
-# Останавливаем бота
-sudo systemctl stop solarbalance
-
-# Переходим в директорию проекта
-cd /home/solarbalance/solarbalance-bot
-
-# Активируем venv
-source venv/bin/activate
-
-# Получаем обновления
-git pull origin main
-
-# Обновляем зависимости
-uv pip install -e .
-
-# Проверяем миграции БД (если есть)
-python -c "from database_async import async_db_manager; import asyncio; asyncio.run(async_db_manager.init_db())"
-
-# Запускаем бота
-sudo systemctl start solarbalance
-
-echo "✅ Обновление завершено!"
-echo "📊 Статус сервиса:"
-sudo systemctl status solarbalance --no-pager
-```
-
-```bash
-chmod +x update_bot.sh
+# Создаем скрипт для автоматических обновлений
+sudo nano /etc/cron.weekly/update-system
 ```
 
 ## 📈 Мониторинг производительности
 
-### 1. Создание скрипта мониторинга
-
+### 1. Установка мониторинга
 ```bash
-nano monitor.sh
+# Устанавливаем htop для мониторинга
+sudo apt install htop
+
+# Устанавливаем netdata (опционально)
+bash <(curl -Ss https://my-netdata.io/kickstart.sh)
 ```
 
+### 2. Настройка алертов
 ```bash
-#!/bin/bash
-
-echo "📊 SolarBalance Bot Status"
-echo "========================="
-
-# Статус сервиса
-echo "🔧 Service Status:"
-systemctl is-active solarbalance
-
-# Использование ресурсов
-echo -e "\n💻 Resource Usage:"
-ps aux | grep python | grep solarbalance | awk '{print "CPU: " $3 "%, RAM: " $4 "%, PID: " $2}'
-
-# Размер логов
-echo -e "\n📝 Log Files:"
-du -sh logs/
-
-# Размер БД
-echo -e "\n🗄️ Database:"
-if [ -f "solarbalance.db" ]; then
-    du -sh solarbalance.db
-fi
-
-# Последние ошибки
-echo -e "\n❌ Recent Errors:"
-journalctl -u solarbalance --since "1 hour ago" | grep -i error | tail -5
+# Создаем скрипт проверки состояния бота
+sudo nano /home/solarbot/check_bot.sh
 ```
 
-```bash
-chmod +x monitor.sh
-```
+## 🔧 Устранение неполадок
 
-## 🆘 Устранение проблем
+### Частые проблемы:
 
-### Типичные проблемы и решения
-
-1. **Ошибка "ModuleNotFoundError"**
+1. **Бот не запускается:**
    ```bash
-   source venv/bin/activate
-   pip install -e .
+   sudo journalctl -u solarbalance-bot -n 50
    ```
 
-2. **Ошибка подключения к БД**
+2. **Проблемы с базой данных:**
    ```bash
-   # Проверьте .env файл
-   cat .env | grep DATABASE_URL
-   
-   # Проверьте права доступа
-   ls -la solarbalance.db
+   # Проверяем подключение к PostgreSQL
+   sudo -u postgres psql -d solarbalance
    ```
 
-3. **Бот не отвечает**
+3. **Проблемы с правами:**
    ```bash
-   # Проверьте логи
-   tail -f logs/bot.log
-   
-   # Проверьте токен
-   cat .env | grep BOT_TOKEN
+   # Проверяем права на файлы
+   sudo chown -R solarbot:solarbot /home/solarbot/solarbalance
    ```
-
-4. **Высокое потребление памяти**
-   ```bash
-   # Перезапустите сервис
-   sudo systemctl restart solarbalance
-   
-   # Проверьте процессы
-   ps aux | grep python
-   ```
-
-## ✅ Финальная проверка
-
-После успешного развертывания проверьте:
-
-- [ ] Бот отвечает на команду `/start`
-- [ ] Админ-панель работает (`/admin`)
-- [ ] Создание натальных карт функционирует
-- [ ] Логи пишутся корректно
-- [ ] Сервис автоматически запускается после перезагрузки
 
 ## 📞 Поддержка
 
 При возникновении проблем:
-1. Проверьте логи: `journalctl -u solarbalance -f`
-2. Проверьте статус: `systemctl status solarbalance`
-3. Проверьте конфигурацию: `cat .env`
-4. Проверьте зависимости: `pip list`
+1. Проверьте логи: `sudo journalctl -u solarbalance-bot -f`
+2. Проверьте статус сервиса: `sudo systemctl status solarbalance-bot`
+3. Проверьте конфигурацию в файле `.env`
+4. Убедитесь, что все зависимости установлены
 
-Развертывание завершено! 🎉 
+---
+
+**Успешного деплоя! 🚀** 

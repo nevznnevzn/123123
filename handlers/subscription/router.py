@@ -5,7 +5,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from database import db_manager
+from database_async import async_db_manager
 from keyboards import Keyboards
 from services.subscription_service import SubscriptionService
 
@@ -24,7 +24,7 @@ async def subscription_menu_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     
     # Получаем статус подписки пользователя
-    subscription_status = subscription_service.get_user_subscription_status(user_id)
+    subscription_status = await subscription_service.get_user_subscription_status(user_id)
     is_premium = subscription_status.get("is_premium", False)
     days_remaining = subscription_status.get("days_remaining")
     
@@ -48,7 +48,7 @@ async def subscription_back_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     
     # Получаем статус подписки пользователя
-    subscription_status = subscription_service.get_user_subscription_status(user_id)
+    subscription_status = await subscription_service.get_user_subscription_status(user_id)
     is_premium = subscription_status.get("is_premium", False)
     days_remaining = subscription_status.get("days_remaining")
     
@@ -72,12 +72,12 @@ async def subscription_status_handler(callback: CallbackQuery):
     """Показать подробный статус подписки"""
     user_id = callback.from_user.id
     
-    subscription_status = subscription_service.get_user_subscription_status(user_id)
+    subscription_status = await subscription_service.get_user_subscription_status(user_id)
     is_premium = subscription_status.get("is_premium", False)
     
     if is_premium:
         days_remaining = subscription_status.get("days_remaining")
-        status_text = subscription_service.get_subscription_status_text(user_id)
+        status_text = await subscription_service.get_subscription_status_text(user_id)
         
         text = f"""
 📊 <b>Статус подписки</b>
@@ -96,7 +96,7 @@ async def subscription_status_handler(callback: CallbackQuery):
 """
     else:
         # Статистика для бесплатных пользователей
-        user_charts = db_manager.get_user_charts(user_id)
+        user_charts = await async_db_manager.get_user_charts(user_id)
         charts_count = len(user_charts)
         max_charts = subscription_service.FREE_USER_LIMITS["natal_charts"]
         
@@ -173,15 +173,7 @@ async def buy_monthly_handler(callback: CallbackQuery):
     text = """
 💳 <b>Оформление подписки</b>
 
-🔄 <b>Система автоматических платежей в разработке...</b>
-
-Интеграция с популярными платёжными системами (ЮKassa, Stripe, СберПей) будет добавлена в ближайших обновлениях для максимального удобства пользователей.
-
-💎 После добавления платёжной системы подписка будет активироваться мгновенно!
-
-🎁 <b>Специальное предложение:</b>
-Первые 100 пользователей получают скидку 50%!
-Стоимость: ~~499₽~~ → <b>249₽</b> в месяц
+🔄 <b>Будет добавлено в следующих обновлениях!</b>
 """
     
     await callback.message.edit_text(
@@ -192,36 +184,7 @@ async def buy_monthly_handler(callback: CallbackQuery):
 
 
 
-@router.callback_query(F.data == "subscription_faq")
-async def subscription_faq_handler(callback: CallbackQuery):
-    """Часто задаваемые вопросы о подписке"""
-    text = """
-❓ <b>Часто задаваемые вопросы</b>
 
-<b>Q: Как работает Premium подписка?</b>
-A: После оплаты вы получаете доступ ко всем функциям на 30 дней.
-
-<b>Q: Можно ли отменить подписку?</b>
-A: Да, вы можете отменить подписку в любой момент.
-
-<b>Q: Что происходит после отмены?</b>
-A: Вы продолжаете пользоваться Premium до конца оплаченного периода.
-
-<b>Q: Когда появятся автоматические платежи?</b>
-A: Интеграция с популярными платёжными системами планируется в ближайших обновлениях.
-
-<b>Q: Безопасны ли будут платежи?</b>
-A: Да, будут использоваться только проверенные платёжные системы с шифрованием.
-
-<b>Q: Есть ли скидки?</b>
-A: Первые 100 пользователей получают скидку 50%!
-"""
-    
-    await callback.message.edit_text(
-        text.strip(),
-        reply_markup=Keyboards.subscription_upgrade_options()
-    )
-    await callback.answer()
 
 
 @router.callback_query(F.data == "subscription_renew")
@@ -285,7 +248,7 @@ async def subscription_cancel_confirm_handler(callback: CallbackQuery):
     user_id = callback.from_user.id
     
     # Отменяем подписку
-    success = subscription_service.cancel_subscription(user_id)
+    success = await subscription_service.cancel_subscription(user_id)
     
     if success:
         text = """

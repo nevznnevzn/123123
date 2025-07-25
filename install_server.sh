@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# 🚀 Автоматическая установка SolarBalance на сервер
-# Использование: ./install_server.sh
+# 🚀 Скрипт автоматической установки Solar Balance Bot на сервер
+# Использование: sudo bash install_server.sh
 
-set -e
+set -e  # Остановка при ошибке
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -12,230 +12,242 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Функция для цветного вывода
-print_status() {
+# Функции для вывода
+log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
 
-print_success() {
+log_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
-print_warning() {
+log_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
-print_error() {
+log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Проверка прав суперпользователя
-check_sudo() {
+# Проверка root прав
+check_root() {
     if [[ $EUID -ne 0 ]]; then
-        print_error "Этот скрипт должен запускаться с правами root (sudo)"
+        log_error "Этот скрипт должен быть запущен с правами root (sudo)"
         exit 1
     fi
 }
 
-# Определение ОС
-detect_os() {
+# Проверка ОС
+check_os() {
     if [[ -f /etc/os-release ]]; then
         . /etc/os-release
         OS=$NAME
         VER=$VERSION_ID
     else
-        print_error "Не удалось определить операционную систему"
+        log_error "Не удалось определить операционную систему"
         exit 1
     fi
-    print_status "Обнаружена ОС: $OS $VER"
+    
+    log_info "Обнаружена ОС: $OS $VER"
+    
+    # Проверяем поддержку
+    if [[ "$OS" != *"Ubuntu"* ]] && [[ "$OS" != *"Debian"* ]]; then
+        log_warning "Скрипт тестировался на Ubuntu/Debian. Другие ОС могут работать некорректно."
+    fi
 }
 
-# Установка системных зависимостей
-install_system_deps() {
-    print_status "Установка системных зависимостей..."
+# Обновление системы
+update_system() {
+    log_info "Обновление системы..."
+    apt update && apt upgrade -y
+    log_success "Система обновлена"
+}
+
+# Установка зависимостей
+install_dependencies() {
+    log_info "Установка системных зависимостей..."
     
-    if [[ $OS == *"Ubuntu"* ]] || [[ $OS == *"Debian"* ]]; then
-        apt update && apt upgrade -y
-        apt install -y python3 python3-pip python3-venv git curl wget
-        apt install -y build-essential python3-dev
-        apt install -y postgresql-client
-        apt install -y nano htop unzip
-    elif [[ $OS == *"CentOS"* ]] || [[ $OS == *"Red Hat"* ]]; then
-        yum update -y
-        yum install -y python3 python3-pip python3-venv git curl wget
-        yum groupinstall -y "Development Tools"
-        yum install -y python3-devel
-        yum install -y nano htop unzip
-    else
-        print_error "Неподдерживаемая операционная система: $OS"
-        exit 1
+    # Основные пакеты
+    apt install -y python3.11 python3.11-venv python3.11-dev python3-pip
+    apt install -y git curl wget build-essential libssl-dev libffi-dev
+    
+    # PostgreSQL (опционально)
+    read -p "Установить PostgreSQL? (y/n): " install_postgres
+    if [[ $install_postgres =~ ^[Yy]$ ]]; then
+        apt install -y postgresql postgresql-contrib libpq-dev
+        log_success "PostgreSQL установлен"
     fi
     
-    print_success "Системные зависимости установлены"
+    log_success "Зависимости установлены"
 }
 
 # Создание пользователя
 create_user() {
-    print_status "Создание пользователя solarbalance..."
+    log_info "Создание пользователя solarbot..."
     
-    if id "solarbalance" &>/dev/null; then
-        print_warning "Пользователь solarbalance уже существует"
+    if id "solarbot" &>/dev/null; then
+        log_warning "Пользователь solarbot уже существует"
     else
-        useradd -m -s /bin/bash solarbalance
-        print_success "Пользователь solarbalance создан"
+        useradd -m -s /bin/bash solarbot
+        usermod -aG sudo solarbot
+        log_success "Пользователь solarbot создан"
     fi
-}
-
-# Установка UV
-install_uv() {
-    print_status "Установка UV (быстрый пакетный менеджер)..."
-    
-    su - solarbalance -c "curl -LsSf https://astral.sh/uv/install.sh | sh"
-    su - solarbalance -c "source ~/.bashrc"
-    
-    print_success "UV установлен"
 }
 
 # Клонирование репозитория
 clone_repository() {
-    print_status "Клонирование репозитория..."
+    log_info "Клонирование репозитория..."
     
-    read -p "Введите URL вашего Git репозитория: " REPO_URL
+    # Запрашиваем URL репозитория
+    read -p "Введите URL репозитория (или нажмите Enter для использования текущей директории): " repo_url
     
-    if [[ -z "$REPO_URL" ]]; then
-        print_error "URL репозитория не может быть пустым"
-        exit 1
+    if [[ -z "$repo_url" ]]; then
+        # Используем текущую директорию
+        if [[ -f "main.py" ]]; then
+            log_info "Используем текущую директорию как репозиторий"
+            cp -r . /home/solarbot/solarbalance
+            chown -R solarbot:solarbot /home/solarbot/solarbalance
+        else
+            log_error "Файл main.py не найден в текущей директории"
+            exit 1
+        fi
+    else
+        # Клонируем репозиторий
+        su - solarbot -c "cd /home/solarbot && git clone $repo_url solarbalance"
     fi
     
-    su - solarbalance -c "
-        cd /home/solarbalance
-        if [[ -d solarbalance-bot ]]; then
-            rm -rf solarbalance-bot
-        fi
-        git clone $REPO_URL solarbalance-bot
-    "
-    
-    print_success "Репозиторий клонирован"
+    log_success "Репозиторий готов"
 }
 
-# Настройка Python окружения
-setup_python_env() {
-    print_status "Настройка Python окружения..."
+# Настройка виртуального окружения
+setup_venv() {
+    log_info "Настройка виртуального окружения..."
     
-    su - solarbalance -c "
-        cd /home/solarbalance/solarbalance-bot
-        python3 -m venv venv
-        source venv/bin/activate
-        pip install --upgrade pip
-        
-        # Устанавливаем зависимости
-        if command -v uv &> /dev/null; then
-            uv pip install -e .
-        else
-            pip install -e .
-        fi
-    "
+    su - solarbot -c "cd /home/solarbot/solarbalance && python3.11 -m venv venv"
+    su - solarbot -c "cd /home/solarbot/solarbalance && source venv/bin/activate && pip install --upgrade pip"
     
-    print_success "Python окружение настроено"
+    # Устанавливаем зависимости
+    if [[ -f "/home/solarbot/solarbalance/requirements-prod.txt" ]]; then
+        su - solarbot -c "cd /home/solarbot/solarbalance && source venv/bin/activate && pip install -r requirements-prod.txt"
+    elif [[ -f "/home/solarbot/solarbalance/requirements.txt" ]]; then
+        su - solarbot -c "cd /home/solarbot/solarbalance && source venv/bin/activate && pip install -r requirements.txt"
+    else
+        log_warning "Файл requirements не найден, устанавливаем основные зависимости"
+        su - solarbot -c "cd /home/solarbot/solarbalance && source venv/bin/activate && pip install aiogram apscheduler pytz sqlalchemy asyncpg aiosqlite openai"
+    fi
+    
+    log_success "Виртуальное окружение настроено"
 }
 
-# Конфигурация
+# Настройка конфигурации
 setup_config() {
-    print_status "Настройка конфигурации..."
+    log_info "Настройка конфигурации..."
     
-    su - solarbalance -c "
-        cd /home/solarbalance/solarbalance-bot
-        
-        # Создаем директории
-        mkdir -p logs assets
-        chmod 755 logs assets
-        
-        # Копируем пример конфигурации
-        cp env.example .env
-        chmod 600 .env
-    "
+    # Создаем .env файл
+    if [[ ! -f "/home/solarbot/solarbalance/.env" ]]; then
+        if [[ -f "/home/solarbot/solarbalance/env.example" ]]; then
+            cp /home/solarbot/solarbalance/env.example /home/solarbot/solarbalance/.env
+        else
+            # Создаем базовый .env файл
+            cat > /home/solarbot/solarbalance/.env << EOF
+# Telegram Bot Token
+BOT_TOKEN=your_bot_token_here
+
+# Database (SQLite по умолчанию)
+DATABASE_URL=sqlite+aiosqlite:///astro_bot.db
+
+# OpenAI API
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_BASE_URL=https://bothub.chat/api/v2/openai/v1
+
+# Logging
+LOG_LEVEL=INFO
+
+# Environment
+ENVIRONMENT=production
+EOF
+        fi
+        chown solarbot:solarbot /home/solarbot/solarbalance/.env
+        chmod 600 /home/solarbot/solarbalance/.env
+    fi
     
-    print_warning "ВАЖНО: Не забудьте отредактировать файл .env!"
-    print_warning "Путь к файлу: /home/solarbalance/solarbalance-bot/.env"
-    print_warning "Обязательно укажите:"
-    print_warning "  - BOT_TOKEN (получите у @BotFather)"
-    print_warning "  - AI_API (ключ Bothub или OpenAI)"
-    print_warning "  - ADMIN_IDS (ваш Telegram ID)"
-    
-    print_success "Базовая конфигурация создана"
+    log_warning "Пожалуйста, отредактируйте файл /home/solarbot/solarbalance/.env и добавьте ваши API ключи"
+    log_success "Конфигурация создана"
 }
 
-# Создание systemd сервиса
-create_systemd_service() {
-    print_status "Создание systemd сервиса..."
+# Настройка systemd сервиса
+setup_systemd() {
+    log_info "Настройка systemd сервиса..."
     
-    cat > /etc/systemd/system/solarbalance.service << 'EOF'
+    cat > /etc/systemd/system/solarbalance-bot.service << EOF
 [Unit]
-Description=SolarBalance Astrology Telegram Bot
+Description=Solar Balance Telegram Bot
 After=network.target postgresql.service
-Wants=network.target
+Wants=postgresql.service
 
 [Service]
 Type=simple
-User=solarbalance
-Group=solarbalance
-WorkingDirectory=/home/solarbalance/solarbalance-bot
-Environment=PATH=/home/solarbalance/solarbalance-bot/venv/bin
-ExecStart=/home/solarbalance/solarbalance-bot/venv/bin/python main_simple.py
-ExecReload=/bin/kill -HUP $MAINPID
+User=solarbot
+Group=solarbot
+WorkingDirectory=/home/solarbot/solarbalance
+Environment=PATH=/home/solarbot/solarbalance/venv/bin
+ExecStart=/home/solarbot/solarbalance/venv/bin/python main.py
 Restart=always
 RestartSec=10
-
-# Безопасность
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/home/solarbalance/solarbalance-bot
-
-# Логи
-StandardOutput=append:/home/solarbalance/solarbalance-bot/logs/systemd.log
-StandardError=append:/home/solarbalance/solarbalance-bot/logs/systemd.log
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
     
     systemctl daemon-reload
-    systemctl enable solarbalance
+    systemctl enable solarbalance-bot
     
-    print_success "Systemd сервис создан и включен"
+    log_success "Systemd сервис настроен"
 }
 
-# Настройка файрвола
-setup_firewall() {
-    print_status "Настройка файрвола..."
+# Настройка логов
+setup_logs() {
+    log_info "Настройка системы логирования..."
     
-    if command -v ufw &> /dev/null; then
-        ufw --force enable
-        ufw allow ssh
-        print_success "Файрвол настроен"
-    else
-        print_warning "UFW не установлен, пропускаем настройку файрвола"
-    fi
+    mkdir -p /home/solarbot/solarbalance/logs
+    chown -R solarbot:solarbot /home/solarbot/solarbalance/logs
+    chmod 755 /home/solarbot/solarbalance/logs
+    
+    # Создаем ротацию логов
+    cat > /etc/logrotate.d/solarbalance-bot << EOF
+/home/solarbot/solarbalance/logs/*.log {
+    daily
+    missingok
+    rotate 52
+    compress
+    delaycompress
+    notifempty
+    create 644 solarbot solarbot
+    postrotate
+        systemctl reload solarbalance-bot
+    endscript
+}
+EOF
+    
+    log_success "Система логирования настроена"
 }
 
-# Создание вспомогательных скриптов
-create_helper_scripts() {
-    print_status "Создание вспомогательных скриптов..."
+# Создание скриптов управления
+create_management_scripts() {
+    log_info "Создание скриптов управления..."
     
     # Скрипт обновления
-    cat > /home/solarbalance/solarbalance-bot/update_bot.sh << 'EOF'
+    cat > /home/solarbot/update_bot.sh << 'EOF'
 #!/bin/bash
-set -e
-
-echo "🔄 Обновление SolarBalance..."
+echo "🔄 Обновление Solar Balance Bot..."
 
 # Останавливаем бота
-sudo systemctl stop solarbalance
+sudo systemctl stop solarbalance-bot
 
 # Переходим в директорию проекта
-cd /home/solarbalance/solarbalance-bot
+cd /home/solarbot/solarbalance
 
 # Активируем venv
 source venv/bin/activate
@@ -244,124 +256,117 @@ source venv/bin/activate
 git pull origin main
 
 # Обновляем зависимости
-if command -v uv &> /dev/null; then
-    uv pip install -e .
-else
-    pip install -e .
-fi
-
-# Проверяем миграции БД (если есть)
-python -c "from database_async import async_db_manager; import asyncio; asyncio.run(async_db_manager.init_db())" || true
+pip install -r requirements-prod.txt --upgrade
 
 # Запускаем бота
-sudo systemctl start solarbalance
+sudo systemctl start solarbalance-bot
 
 echo "✅ Обновление завершено!"
 echo "📊 Статус сервиса:"
-sudo systemctl status solarbalance --no-pager
+sudo systemctl status solarbalance-bot --no-pager
 EOF
-
+    
     # Скрипт мониторинга
-    cat > /home/solarbalance/solarbalance-bot/monitor.sh << 'EOF'
+    cat > /home/solarbot/check_bot.sh << 'EOF'
 #!/bin/bash
-
-echo "📊 SolarBalance Bot Status"
-echo "========================="
+echo "📊 Solar Balance Bot Status"
+echo "=========================="
 
 # Статус сервиса
 echo "🔧 Service Status:"
-systemctl is-active solarbalance || echo "inactive"
+systemctl is-active solarbalance-bot
 
 # Использование ресурсов
 echo -e "\n💻 Resource Usage:"
-ps aux | grep python | grep solarbalance | awk '{print "CPU: " $3 "%, RAM: " $4 "%, PID: " $2}' || echo "Process not found"
+ps aux | grep python | grep solarbalance | awk '{print "CPU: " $3 "%, RAM: " $4 "%, PID: " $2}'
 
 # Размер логов
 echo -e "\n📝 Log Files:"
-du -sh logs/ 2>/dev/null || echo "No logs directory"
-
-# Размер БД
-echo -e "\n🗄️ Database:"
-if [ -f "solarbalance.db" ]; then
-    du -sh solarbalance.db
-else
-    echo "Database file not found"
-fi
+du -sh /home/solarbot/solarbalance/logs/
 
 # Последние ошибки
 echo -e "\n❌ Recent Errors:"
-journalctl -u solarbalance --since "1 hour ago" 2>/dev/null | grep -i error | tail -5 || echo "No recent errors"
+journalctl -u solarbalance-bot --since "1 hour ago" | grep -i error | tail -5
 EOF
-
-    # Делаем скрипты исполняемыми
-    chmod +x /home/solarbalance/solarbalance-bot/update_bot.sh
-    chmod +x /home/solarbalance/solarbalance-bot/monitor.sh
-    chown solarbalance:solarbalance /home/solarbalance/solarbalance-bot/update_bot.sh
-    chown solarbalance:solarbalance /home/solarbalance/solarbalance-bot/monitor.sh
     
-    print_success "Вспомогательные скрипты созданы"
+    chmod +x /home/solarbot/update_bot.sh
+    chmod +x /home/solarbot/check_bot.sh
+    chown solarbot:solarbot /home/solarbot/update_bot.sh
+    chown solarbot:solarbot /home/solarbot/check_bot.sh
+    
+    log_success "Скрипты управления созданы"
 }
 
-# Финальная проверка
-final_check() {
-    print_status "Проведение финальной проверки..."
+# Финальная настройка
+final_setup() {
+    log_info "Финальная настройка..."
     
-    # Проверяем, что все файлы на месте
-    if [[ ! -f /home/solarbalance/solarbalance-bot/main_simple.py ]]; then
-        print_error "Файл main_simple.py не найден!"
-        exit 1
-    fi
+    # Устанавливаем права на файлы
+    chown -R solarbot:solarbot /home/solarbot/solarbalance
     
-    if [[ ! -f /home/solarbalance/solarbalance-bot/.env ]]; then
-        print_error "Файл .env не найден!"
-        exit 1
-    fi
+    # Создаем символические ссылки для удобства
+    ln -sf /home/solarbot/update_bot.sh /usr/local/bin/update-solarbot
+    ln -sf /home/solarbot/check_bot.sh /usr/local/bin/check-solarbot
     
-    print_success "Все файлы на месте"
+    log_success "Финальная настройка завершена"
+}
+
+# Вывод инструкций
+show_instructions() {
+    echo ""
+    echo "🎉 Установка завершена!"
+    echo "========================"
+    echo ""
+    echo "📝 Следующие шаги:"
+    echo "1. Отредактируйте конфигурацию:"
+    echo "   sudo nano /home/solarbot/solarbalance/.env"
+    echo ""
+    echo "2. Добавьте ваши API ключи в .env файл:"
+    echo "   - BOT_TOKEN (от @BotFather)"
+    echo "   - OPENAI_API_KEY (от OpenAI или Bothub)"
+    echo ""
+    echo "3. Запустите бота:"
+    echo "   sudo systemctl start solarbalance-bot"
+    echo ""
+    echo "4. Проверьте статус:"
+    echo "   sudo systemctl status solarbalance-bot"
+    echo ""
+    echo "5. Просмотрите логи:"
+    echo "   sudo journalctl -u solarbalance-bot -f"
+    echo ""
+    echo "🔧 Полезные команды:"
+    echo "   update-solarbot    - Обновить бота"
+    echo "   check-solarbot     - Проверить статус"
+    echo "   sudo systemctl restart solarbalance-bot  - Перезапустить"
+    echo "   sudo systemctl stop solarbalance-bot     - Остановить"
+    echo ""
+    echo "📁 Файлы:"
+    echo "   Конфигурация: /home/solarbot/solarbalance/.env"
+    echo "   Логи: /home/solarbot/solarbalance/logs/"
+    echo "   Скрипты: /home/solarbot/update_bot.sh, /home/solarbot/check_bot.sh"
+    echo ""
 }
 
 # Главная функция
 main() {
-    echo -e "${BLUE}"
-    echo "🚀 Автоматическая установка SolarBalance"
+    echo "🚀 Установка Solar Balance Bot на сервер"
     echo "========================================"
-    echo -e "${NC}"
+    echo ""
     
-    check_sudo
-    detect_os
-    install_system_deps
+    check_root
+    check_os
+    update_system
+    install_dependencies
     create_user
-    install_uv
     clone_repository
-    setup_python_env
+    setup_venv
     setup_config
-    create_systemd_service
-    setup_firewall
-    create_helper_scripts
-    final_check
-    
-    echo -e "${GREEN}"
-    echo "✅ Установка завершена успешно!"
-    echo "==============================="
-    echo -e "${NC}"
-    
-    print_warning "СЛЕДУЮЩИЕ ШАГИ:"
-    echo "1. Отредактируйте файл конфигурации:"
-    echo "   nano /home/solarbalance/solarbalance-bot/.env"
-    echo ""
-    echo "2. Запустите бота:"
-    echo "   systemctl start solarbalance"
-    echo ""
-    echo "3. Проверьте статус:"
-    echo "   systemctl status solarbalance"
-    echo ""
-    echo "4. Посмотрите логи:"
-    echo "   journalctl -u solarbalance -f"
-    echo ""
-    echo "📚 Полная документация: deploy_server.md"
-    echo "🔧 Скрипт мониторинга: /home/solarbalance/solarbalance-bot/monitor.sh"
-    echo "🔄 Скрипт обновления: /home/solarbalance/solarbalance-bot/update_bot.sh"
+    setup_systemd
+    setup_logs
+    create_management_scripts
+    final_setup
+    show_instructions
 }
 
-# Запуск
+# Запуск главной функции
 main "$@" 

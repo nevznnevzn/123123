@@ -15,7 +15,7 @@ from utils import format_period_info, get_next_available_time, get_prediction_pe
 
 
 def create_profile_router(
-    db_manager: DatabaseManager, astro_service: AstroService
+    db_manager: DatabaseManager, astro_service: AstroService, async_db_manager
 ) -> Router:
     router = Router()
 
@@ -126,7 +126,7 @@ def create_profile_router(
         user_data = await state.get_data()
 
         # Сохраняем или обновляем профиль
-        db_manager.update_user_profile(
+        await async_db_manager.update_user_profile(
             telegram_id=message.from_user.id,
             name=user_data["name"],
             gender=user_data["gender"],
@@ -156,7 +156,7 @@ def create_profile_router(
     async def show_profile(message: Message):
         """Отображение профиля пользователя"""
         user_id = message.from_user.id
-        user_profile = db_manager.get_user_profile(user_id)
+        user_profile = await async_db_manager.get_user_profile(user_id)
 
         if user_profile and user_profile.is_profile_complete:
             birth_date_str = (
@@ -195,7 +195,7 @@ def create_profile_router(
     async def toggle_notifications_handler(callback: CallbackQuery):
         """Переключает статус уведомлений"""
         user_id = callback.from_user.id
-        user = db_manager.get_user_profile(user_id)
+        user = await async_db_manager.get_user_profile(user_id)
 
         if not user:
             await callback.answer("Профиль не найден.", show_alert=True)
@@ -203,7 +203,7 @@ def create_profile_router(
 
         # Инвертируем текущий статус
         new_status = not user.notifications_enabled
-        db_manager.set_notifications(user_id, new_status)
+        await async_db_manager.set_notifications(user_id, new_status)
 
         # Обновляем клавиатуру в сообщении
         await callback.message.edit_reply_markup(

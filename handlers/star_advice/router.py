@@ -4,7 +4,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from database import db_manager
+from database_async import async_db_manager
 from services.antispam_service import AntiSpamService
 from services.astro_calculations import AstroService
 from services.star_advice_service import StarAdviceService
@@ -31,7 +31,7 @@ async def star_advice_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
     # Проверяем заполнен ли профиль
-    user_profile = db_manager.get_user_profile(user_id)
+    user_profile = await async_db_manager.get_user_profile(user_id)
     if not user_profile or not user_profile.is_profile_complete:
         await message.answer(
             "🌟 <b>Звёздный совет</b> ✨\n\n"
@@ -41,7 +41,7 @@ async def star_advice_start(message: Message, state: FSMContext):
         return
 
     # Показываем статистику лимитов
-    is_premium = subscription_service.is_user_premium(user_id)
+    is_premium = await subscription_service.is_user_premium(user_id)
     stats_text = antispam_service.get_stats_text(user_id, is_premium)
 
     text = (
@@ -66,7 +66,7 @@ async def handle_category_selection(callback: CallbackQuery, state: FSMContext):
         return
 
     # Проверяем лимиты перед началом
-    is_premium = subscription_service.is_user_premium(user_id)
+    is_premium = await subscription_service.is_user_premium(user_id)
     limits_check = antispam_service.check_limits(user_id, is_premium)
 
     if not limits_check["allowed"]:
@@ -126,7 +126,7 @@ async def process_question(message: Message, state: FSMContext):
         return
 
     # Финальная проверка лимитов перед генерацией
-    is_premium = subscription_service.is_user_premium(user_id)
+    is_premium = await subscription_service.is_user_premium(user_id)
     limits_check = antispam_service.check_limits(user_id, is_premium)
 
     if not limits_check["allowed"]:
@@ -144,7 +144,7 @@ async def process_question(message: Message, state: FSMContext):
 
     try:
         # Получаем данные пользователя
-        user_profile = db_manager.get_user_profile(user_id)
+        user_profile = await async_db_manager.get_user_profile(user_id)
         location = astro_service.get_location(user_profile.birth_city)
 
         if not location:
@@ -169,7 +169,7 @@ async def process_question(message: Message, state: FSMContext):
             return
 
         # Фильтруем планеты в зависимости от подписки
-        filtered_planets = subscription_service.filter_planets_for_user(
+        filtered_planets = await subscription_service.filter_planets_for_user(
             planets, user_id
         )
 

@@ -702,11 +702,6 @@ class Keyboards:
 
         builder.add(
             InlineKeyboardButton(
-                text="❓ Часто задаваемые вопросы", callback_data="subscription_faq"
-            )
-        )
-        builder.add(
-            InlineKeyboardButton(
                 text="🔙 Назад", callback_data="subscription_back"
             )
         )

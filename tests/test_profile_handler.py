@@ -25,7 +25,7 @@ async def test_toggle_notifications_handler(db_manager):
     astro_service = (
         AstroService()
     )  # Для этого теста он не важен, но нужен для создания роутера
-    profile_router = create_profile_router(db_manager, astro_service)
+    profile_router = create_profile_router(db_manager, astro_service, async_db_manager)
 
     # Находим наш обработчик в списке обработчиков роутера.
     # Это не самый элегантный способ, но он работает для тестирования.

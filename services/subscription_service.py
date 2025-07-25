@@ -2,7 +2,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from database import SubscriptionStatus, SubscriptionType, db_manager
+from database import SubscriptionStatus, SubscriptionType
+from database_async import async_db_manager
 from models import PlanetPosition
 
 logger = logging.getLogger(__name__)
@@ -23,21 +24,21 @@ class SubscriptionService:
 
     # Лимиты для бесплатных пользователей
     FREE_USER_LIMITS = {
-        "natal_charts": 1,  # Одна натальная карта
+        "natal_charts": 3,  # Три натальные карты
         "daily_questions": 5,  # 5 вопросов в день (всего)
-        "planets_shown": ["Солнце", "Луна", "Асцендент"],  # Только основные планеты
+        "planets_shown": ["Солнце", "Луна", "Асцендент"],  # Основные планеты + Асцендент
     }
 
     def __init__(self):
         pass
 
-    def get_user_subscription_status(self, telegram_id: int) -> Dict[str, Any]:
+    async def get_user_subscription_status(self, telegram_id: int) -> Dict[str, Any]:
         """Получить статус подписки пользователя"""
         try:
             # Получаем или создаем подписку (по умолчанию FREE)
-            subscription = db_manager.get_or_create_subscription(telegram_id)
+            subscription = await async_db_manager.get_or_create_subscription(telegram_id)
 
-            subscription_info = db_manager.get_subscription_info(telegram_id)
+            subscription_info = await async_db_manager.get_subscription_info(telegram_id)
             if not subscription_info:
                 # Если почему-то не удалось получить информацию, создаем базовую
                 subscription_info = {
@@ -61,16 +62,16 @@ class SubscriptionService:
                 "days_remaining": None,
             }
 
-    def is_user_premium(self, telegram_id: int) -> bool:
+    async def is_user_premium(self, telegram_id: int) -> bool:
         """Проверить, является ли пользователь премиум"""
-        status = self.get_user_subscription_status(telegram_id)
+        status = await self.get_user_subscription_status(telegram_id)
         return status.get("is_premium", False)
 
-    def filter_planets_for_user(
+    async def filter_planets_for_user(
         self, planets: Dict[str, PlanetPosition], telegram_id: int
     ) -> Dict[str, PlanetPosition]:
         """Фильтрует планеты в зависимости от типа подписки"""
-        if self.is_user_premium(telegram_id):
+        if await self.is_user_premium(telegram_id):
             # Премиум пользователи видят все планеты
             return planets
 
@@ -84,13 +85,13 @@ class SubscriptionService:
 
         return filtered_planets
 
-    def can_create_natal_chart(self, telegram_id: int) -> tuple[bool, str]:
+    async def can_create_natal_chart(self, telegram_id: int) -> tuple[bool, str]:
         """Проверить, может ли пользователь создать новую натальную карту"""
-        if self.is_user_premium(telegram_id):
+        if await self.is_user_premium(telegram_id):
             return True, ""
 
         # Для бесплатных пользователей - ограничение на количество карт
-        user_charts = db_manager.get_user_charts(telegram_id)
+        user_charts = await async_db_manager.get_user_charts(telegram_id)
         max_charts = self.FREE_USER_LIMITS["natal_charts"]
 
         if len(user_charts) >= max_charts:
@@ -126,13 +127,13 @@ class SubscriptionService:
 """
         return text.strip()
 
-    def create_premium_subscription(
+    async def create_premium_subscription(
         self, telegram_id: int, payment_id: str = None
     ) -> bool:
         """Создать премиум подписку для пользователя"""
         try:
             monthly = self.SUBSCRIPTION_PRICES["monthly"]
-            subscription = db_manager.create_premium_subscription(
+            subscription = await async_db_manager.create_premium_subscription(
                 telegram_id=telegram_id,
                 duration_days=monthly["duration_days"],
                 payment_id=payment_id,
@@ -146,10 +147,10 @@ class SubscriptionService:
             logger.error(f"Ошибка создания премиум подписки для {telegram_id}: {e}")
             return False
 
-    def cancel_subscription(self, telegram_id: int) -> bool:
+    async def cancel_subscription(self, telegram_id: int) -> bool:
         """Отменить подписку пользователя"""
         try:
-            result = db_manager.cancel_subscription(telegram_id)
+            result = await async_db_manager.cancel_premium_subscription(telegram_id)
             if result:
                 logger.info(f"Подписка отменена для пользователя {telegram_id}")
             return result
@@ -158,9 +159,9 @@ class SubscriptionService:
             logger.error(f"Ошибка отмены подписки для {telegram_id}: {e}")
             return False
 
-    def get_subscription_status_text(self, telegram_id: int) -> str:
+    async def get_subscription_status_text(self, telegram_id: int) -> str:
         """Получить текст статуса подписки"""
-        status = self.get_user_subscription_status(telegram_id)
+        status = await self.get_user_subscription_status(telegram_id)
 
         if status["is_premium"]:
             days_remaining = status.get("days_remaining")
@@ -173,14 +174,14 @@ class SubscriptionService:
                 "🆓 <b>Бесплатная версия</b>\n💎 Оформите Premium для полного доступа"
             )
 
-    def expire_subscriptions(self) -> int:
+    async def expire_subscriptions(self) -> int:
         """Проверить и отметить истекшие подписки"""
-        return db_manager.check_and_expire_subscriptions()
+        return await async_db_manager.check_and_expire_subscriptions()
 
-    def get_admin_stats(self) -> Dict[str, Any]:
+    async def get_admin_stats(self) -> Dict[str, Any]:
         """Получить статистику для администратора"""
         try:
-            stats = db_manager.get_subscription_stats()
+            stats = await async_db_manager.get_subscription_stats()
             return {
                 "total_users": stats["total_users"],
                 "free_users": stats["total_free"],

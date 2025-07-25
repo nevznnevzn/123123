@@ -4,7 +4,7 @@ from typing import Optional
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 
-from database import DatabaseManager, User, db_manager
+from database_async import AsyncDatabaseManager, User, async_db_manager
 from services.ai_predictions import AIPredictionService
 from services.subscription_service import SubscriptionService
 
@@ -34,11 +34,11 @@ class MotivationService:
 
         # Определяем статус подписки если не передан
         if is_subscribed is None:
-            is_subscribed = self.subscription_service.is_user_premium(user.telegram_id)
+            is_subscribed = await self.subscription_service.is_user_premium(user.telegram_id)
 
         try:
             # Получаем натальную карту пользователя
-            user_charts = db_manager.get_user_charts(user.telegram_id)
+            user_charts = await async_db_manager.get_user_charts(user.telegram_id)
             if not user_charts:
                 logger.warning(
                     f"У пользователя {user.telegram_id} нет натальных карт для генерации мотивации."
@@ -56,7 +56,7 @@ class MotivationService:
                 return await self._generate_generic_motivation(user.name, is_subscribed)
 
             # Фильтруем планеты в зависимости от подписки
-            filtered_planets = self.subscription_service.filter_planets_for_user(
+            filtered_planets = await self.subscription_service.filter_planets_for_user(
                 planets_data, user.telegram_id
             )
 
@@ -155,7 +155,7 @@ class MotivationService:
         return "Общая мотивация на день."
 
 
-async def send_daily_motivation(bot: Bot, db_manager: DatabaseManager):
+async def send_daily_motivation(bot: Bot, db_manager: AsyncDatabaseManager):
     """
     Выполняет ежедневную рассылку мотивационных сообщений.
     """
@@ -164,7 +164,7 @@ async def send_daily_motivation(bot: Bot, db_manager: DatabaseManager):
     ai_service = AIPredictionService()
     motivation_service = MotivationService(ai_service=ai_service)
 
-    users_for_mailing = db_manager.get_users_for_mailing()
+    users_for_mailing = await db_manager.get_users_for_mailing()
 
     sent_count = 0
     failed_count = 0
